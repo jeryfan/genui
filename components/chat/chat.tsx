@@ -48,6 +48,7 @@ import {
   ThreadPrimitive,
   useAui,
   useAuiState,
+  useThreadRuntime,
 } from "@assistant-ui/react";
 import {
   ArrowDownIcon,
@@ -69,7 +70,7 @@ import {
   PencilIcon,
   PencilLineIcon,
   RefreshCwIcon,
-  ShareIcon,
+  Settings as SettingsIcon,
   SquareIcon,
 } from "lucide-react";
 import { LexicalComposerInput } from "@assistant-ui/react-lexical";
@@ -104,7 +105,7 @@ const Sidebar: FC<{ collapsed?: boolean }> = ({ collapsed }) => {
             collapsed && "opacity-0",
           )}
         >
-          assistant-ui
+          GenUI
         </span>
       </div>
       <ThreadListRoot
@@ -201,6 +202,67 @@ const ThreadTitle: FC = () => {
   );
 };
 
+const ExportButton: FC = () => {
+  const runtime = useThreadRuntime();
+  const hasMessages = useAuiState((s) =>
+    s.thread.messages.some((m) => m.role === "user" || m.role === "assistant"),
+  );
+
+  const handleExport = () => {
+    const repository = runtime.export();
+    const json = JSON.stringify(repository, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `genui-conversation-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <TooltipIconButton
+      variant="ghost"
+      size="icon"
+      tooltip="Export conversation"
+      side="bottom"
+      onClick={handleExport}
+      disabled={!hasMessages}
+      className="size-8"
+    >
+      <DownloadIcon className="size-4" />
+    </TooltipIconButton>
+  );
+};
+
+const SettingsButton: FC = () => {
+  return (
+    <Sheet>
+      <SheetTrigger
+        render={
+          <TooltipIconButton
+            variant="ghost"
+            size="icon"
+            tooltip="Settings"
+            side="bottom"
+            className="size-8"
+          >
+            <SettingsIcon className="size-4" />
+          </TooltipIconButton>
+        }
+      />
+      <SheetContent side="right" className="w-80">
+        <div className="flex h-full flex-col">
+          <h2 className="text-lg font-semibold">Settings</h2>
+          <p className="text-muted-foreground mt-2 text-sm">
+            Settings panel placeholder. Features will be planned here.
+          </p>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+};
+
 const Header: FC<{
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
@@ -219,16 +281,10 @@ const Header: FC<{
         <PanelLeftIcon className="size-4" />
       </TooltipIconButton>
       <ThreadTitle />
-      <TooltipIconButton
-        variant="ghost"
-        size="icon"
-        tooltip="Share"
-        side="bottom"
-        disabled
-        className="ml-auto size-8"
-      >
-        <ShareIcon className="size-4" />
-      </TooltipIconButton>
+      <div className="ml-auto flex items-center gap-1">
+        <ExportButton />
+        <SettingsButton />
+      </div>
     </header>
   );
 };
