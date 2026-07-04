@@ -1,0 +1,21 @@
+img {
+  will-change: filter;
+  transition: filter 300ms;
+}
+
+img:hover {
+  filter: drop-shadow(0 0 8px #646cffaa);
+}
+
+img.animate-spin {
+  animation: spin 20s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
