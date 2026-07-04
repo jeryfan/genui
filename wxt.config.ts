@@ -8,8 +8,13 @@ export default defineConfig({
     action: {
       default_title: 'Open Chat Panel',
     },
+    permissions: [
+      'tabs',
+      'activeTab',
+      'scripting',
+    ],
     host_permissions: [
-      'https://api.kimi.com/coding/*',
+      '<all_urls>',
     ],
   },
   vite: () => ({

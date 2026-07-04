@@ -35,8 +35,6 @@ import {
   QuoteBlock,
   SelectionToolbar,
 } from "@/components/assistant-ui/quote";
-import { ComposerTriggerPopover } from "@/components/assistant-ui/composer-trigger-popover";
-import { DirectiveText } from "@/components/assistant-ui/directive-text";
 import {
   ActionBarMorePrimitive,
   ActionBarPrimitive,
@@ -48,11 +46,8 @@ import {
   groupPartByType,
   MessagePrimitive,
   ThreadPrimitive,
-  unstable_useMentionAdapter,
-  unstable_useSlashCommandAdapter,
   useAui,
   useAuiState,
-  type Unstable_SlashCommand,
 } from "@assistant-ui/react";
 import {
   ArrowDownIcon,
@@ -65,28 +60,21 @@ import {
   CodeXmlIcon,
   CopyIcon,
   DownloadIcon,
-  FileTextIcon,
-  GlobeIcon,
-  HelpCircleIcon,
-  LanguagesIcon,
   LightbulbIcon,
   MenuIcon,
   MicIcon,
+  MousePointer2Icon,
   MoreHorizontalIcon,
   PanelLeftIcon,
   PencilIcon,
   PencilLineIcon,
   RefreshCwIcon,
   ShareIcon,
-  SlashIcon,
   SquareIcon,
-  WrenchIcon,
 } from "lucide-react";
-import {
-  LexicalComposerInput,
-  type DirectiveChipProps,
-} from "@assistant-ui/react-lexical";
+import { LexicalComposerInput } from "@assistant-ui/react-lexical";
 import { useState, type FC, type ReactNode } from "react";
+import { useElementSelection } from "@/hooks/use-element-selection";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
   Tooltip,
@@ -293,8 +281,7 @@ const Thread: FC = () => {
         <ThreadPrimitive.ViewportFooter
           className={cn(
             "aui-thread-viewport-footer bg-background mx-auto flex w-full max-w-(--thread-max-width) flex-col gap-4 overflow-visible pb-4 md:pb-6",
-            !isEmpty &&
-              "sticky bottom-0 mt-auto rounded-t-(--composer-radius)",
+            !isEmpty && "sticky bottom-0 mt-auto rounded-t-(--composer-radius)",
           )}
         >
           <ThreadScrollToBottom />
@@ -334,104 +321,47 @@ const ThreadWelcome: FC = () => {
 const suggestionChipClass =
   "aui-thread-welcome-suggestion text-foreground hover:bg-muted border-border/60 h-auto gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-normal whitespace-nowrap transition-colors [&_svg]:size-4";
 
-const slashCommands: readonly Unstable_SlashCommand[] = [
-  {
-    id: "summarize",
-    description: "Summarize the conversation",
-    icon: "FileText",
-    execute: () => console.log("[base example] /summarize invoked"),
-  },
-  {
-    id: "translate",
-    description: "Translate text to another language",
-    icon: "Languages",
-    execute: () => console.log("[base example] /translate invoked"),
-  },
-  {
-    id: "search",
-    description: "Search the web for information",
-    icon: "Globe",
-    execute: () => console.log("[base example] /search invoked"),
-  },
-  {
-    id: "help",
-    description: "List available commands",
-    icon: "HelpCircle",
-    execute: () => console.log("[base example] /help invoked"),
-  },
-];
-
-const slashIconMap: Record<string, FC<{ className?: string }>> = {
-  FileText: FileTextIcon,
-  Languages: LanguagesIcon,
-  Globe: GlobeIcon,
-  HelpCircle: HelpCircleIcon,
-};
-
-function DirectiveChip(props: DirectiveChipProps) {
-  const { directiveId, directiveType, label } = props;
-  const showWrench = directiveType !== "command";
-  return (
-    <span
-      className="aui-directive-chip"
-      data-directive-type={directiveType}
-      data-directive-id={directiveId}
-    >
-      {showWrench && (
-        <span className="aui-directive-chip-icon">
-          <WrenchIcon className="size-3" />
-        </span>
-      )}
-      <span className="aui-directive-chip-label">{label}</span>
-    </span>
-  );
-}
-
 const Composer: FC = () => {
-  const mention = unstable_useMentionAdapter({ fallbackIcon: WrenchIcon });
-  const slash = unstable_useSlashCommandAdapter({
-    commands: slashCommands,
-    iconMap: slashIconMap,
-    fallbackIcon: SlashIcon,
-  });
-
   return (
-    <ComposerPrimitive.Unstable_TriggerPopoverRoot>
-      <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col">
-        <ComposerPrimitive.AttachmentDropzone asChild>
-          <div
-            data-slot="aui_composer-shell"
-            className="border-border/60 data-[dragging=true]:border-ring focus-within:border-border dark:border-muted-foreground/15 dark:focus-within:border-muted-foreground/30 flex w-full flex-col gap-2 rounded-(--composer-radius) border bg-(--composer-bg) p-(--composer-padding) shadow-[0_4px_16px_-8px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] transition-[border-color,box-shadow] focus-within:shadow-[0_6px_24px_-8px_rgba(0,0,0,0.12),0_1px_2px_rgba(0,0,0,0.05)] data-[dragging=true]:border-dashed data-[dragging=true]:bg-[color-mix(in_oklab,var(--color-accent)_50%,var(--color-background))] dark:shadow-none"
-          >
-            <ComposerQuotePreview />
-            <ComposerAttachments />
-            <LexicalComposerInput
-              directiveChip={DirectiveChip}
-              placeholder="Send a message... (@ to mention, / for commands)"
-              className="aui-composer-input [&_.aui-lexical-placeholder]:text-muted-foreground/80 relative max-h-32 min-h-10 w-full resize-none bg-transparent px-2.5 py-1 text-base outline-none [&_.aui-directive-chip]:inline-flex [&_.aui-directive-chip]:items-baseline [&_.aui-directive-chip]:gap-1 [&_.aui-directive-chip]:rounded-md [&_.aui-directive-chip]:bg-blue-100 [&_.aui-directive-chip]:px-1.5 [&_.aui-directive-chip]:py-0.5 [&_.aui-directive-chip]:text-[13px] [&_.aui-directive-chip]:leading-none [&_.aui-directive-chip]:font-medium [&_.aui-directive-chip]:text-blue-700 dark:[&_.aui-directive-chip]:bg-blue-900/50 dark:[&_.aui-directive-chip]:text-blue-300 [&_.aui-directive-chip-icon]:self-center [&_.aui-lexical-input]:min-h-lh [&_.aui-lexical-input]:outline-none [&_.aui-lexical-placeholder]:pointer-events-none [&_.aui-lexical-placeholder]:absolute [&_.aui-lexical-placeholder]:top-0 [&_.aui-lexical-placeholder]:right-0 [&_.aui-lexical-placeholder]:left-0 [&_.aui-lexical-placeholder]:truncate [&_.aui-lexical-placeholder]:px-2.5 [&_.aui-lexical-placeholder]:py-1"
-            />
-            <ComposerAction />
-          </div>
-        </ComposerPrimitive.AttachmentDropzone>
-
-        <ComposerTriggerPopover char="@" {...mention} />
-
-        <ComposerTriggerPopover
-          char="/"
-          {...slash}
-          emptyItemsLabel="No matching commands"
-        />
-      </ComposerPrimitive.Root>
-    </ComposerPrimitive.Unstable_TriggerPopoverRoot>
+    <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col">
+      <ComposerPrimitive.AttachmentDropzone asChild>
+        <div
+          data-slot="aui_composer-shell"
+          className="border-border/60 data-[dragging=true]:border-ring focus-within:border-border dark:border-muted-foreground/15 dark:focus-within:border-muted-foreground/30 flex w-full flex-col gap-2 rounded-(--composer-radius) border bg-(--composer-bg) p-(--composer-padding) shadow-[0_4px_16px_-8px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] transition-[border-color,box-shadow] focus-within:shadow-[0_6px_24px_-8px_rgba(0,0,0,0.12),0_1px_2px_rgba(0,0,0,0.05)] data-[dragging=true]:border-dashed data-[dragging=true]:bg-[color-mix(in_oklab,var(--color-accent)_50%,var(--color-background))] dark:shadow-none"
+        >
+          <ComposerQuotePreview />
+          <ComposerAttachments />
+          <LexicalComposerInput
+            placeholder="Send a message..."
+            className="aui-composer-input [&_.aui-lexical-placeholder]:text-muted-foreground/80 relative max-h-32 min-h-10 w-full resize-none bg-transparent px-2.5 py-1 text-base outline-none [&_.aui-lexical-input]:min-h-lh [&_.aui-lexical-input]:outline-none [&_.aui-lexical-placeholder]:pointer-events-none [&_.aui-lexical-placeholder]:absolute [&_.aui-lexical-placeholder]:top-0 [&_.aui-lexical-placeholder]:right-0 [&_.aui-lexical-placeholder]:left-0 [&_.aui-lexical-placeholder]:truncate [&_.aui-lexical-placeholder]:px-2.5 [&_.aui-lexical-placeholder]:py-1"
+          />
+          <ComposerAction />
+        </div>
+      </ComposerPrimitive.AttachmentDropzone>
+    </ComposerPrimitive.Root>
   );
 };
 
 const ComposerAction: FC = () => {
+  const { isSelecting, startSelection, cancelSelection } =
+    useElementSelection();
+
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
       <div className="flex items-center gap-1">
         <ComposerAddAttachment />
-        <ModelPicker />
+        <TooltipIconButton
+          tooltip={isSelecting ? "Cancel selection" : "Select element on page"}
+          side="bottom"
+          type="button"
+          variant={isSelecting ? "destructive" : "ghost"}
+          size="icon"
+          className="size-7 rounded-full"
+          aria-label="Select element on page"
+          onClick={isSelecting ? cancelSelection : startSelection}
+        >
+          <MousePointer2Icon className="size-4" />
+        </TooltipIconButton>
       </div>
       <div className="flex items-center gap-1.5">
         <AuiIf condition={(s) => s.thread.capabilities.dictation}>
@@ -466,6 +396,7 @@ const ComposerAction: FC = () => {
             </ComposerPrimitive.StopDictation>
           </AuiIf>
         </AuiIf>
+        <ModelPicker />
         <AuiIf condition={(s) => !s.thread.isRunning}>
           <ComposerPrimitive.Send asChild>
             <TooltipIconButton
@@ -675,7 +606,7 @@ const UserMessage: FC = () => {
           <MessagePrimitive.Quote>
             {(quote) => <QuoteBlock {...quote} />}
           </MessagePrimitive.Quote>
-          <MessagePrimitive.Parts components={{ Text: DirectiveText }} />
+          <MessagePrimitive.Parts />
         </div>
         <div className="aui-user-action-bar-wrapper absolute top-1/2 left-0 -translate-x-full -translate-y-1/2 pr-2 peer-empty:hidden">
           <UserActionBar />
@@ -712,13 +643,11 @@ const EditComposer: FC = () => {
       data-slot="aui_edit-composer-wrapper"
       className="mx-auto flex w-full max-w-(--thread-max-width) flex-col px-2"
     >
-      <ComposerPrimitive.Unstable_TriggerPopoverRoot>
-        <ComposerPrimitive.Root className="aui-edit-composer-root border-border/60 dark:border-muted-foreground/15 ml-auto flex w-full max-w-[85%] flex-col rounded-(--composer-radius) border bg-(--composer-bg) shadow-[0_4px_16px_-8px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-none">
-          <LexicalComposerInput
-            directiveChip={DirectiveChip}
-            autoFocus
-            className="aui-edit-composer-input text-foreground min-h-14 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-base outline-none [&_.aui-directive-chip]:inline-flex [&_.aui-directive-chip]:items-baseline [&_.aui-directive-chip]:gap-1 [&_.aui-directive-chip]:rounded-md [&_.aui-directive-chip]:bg-blue-100 [&_.aui-directive-chip]:px-1.5 [&_.aui-directive-chip]:py-0.5 [&_.aui-directive-chip]:text-[13px] [&_.aui-directive-chip]:leading-none [&_.aui-directive-chip]:font-medium [&_.aui-directive-chip]:text-blue-700 dark:[&_.aui-directive-chip]:bg-blue-900/50 dark:[&_.aui-directive-chip]:text-blue-300 [&_.aui-directive-chip-icon]:self-center [&_.aui-lexical-input]:min-h-lh [&_.aui-lexical-input]:outline-none"
-          />
+      <ComposerPrimitive.Root className="aui-edit-composer-root border-border/60 dark:border-muted-foreground/15 ml-auto flex w-full max-w-[85%] flex-col rounded-(--composer-radius) border bg-(--composer-bg) shadow-[0_4px_16px_-8px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-none">
+        <LexicalComposerInput
+          autoFocus
+          className="aui-edit-composer-input text-foreground min-h-14 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-base outline-none [&_.aui-lexical-input]:min-h-lh [&_.aui-lexical-input]:outline-none"
+        />
           <div className="aui-edit-composer-footer mx-2.5 mb-2.5 flex items-center gap-1.5 self-end">
             <ComposerPrimitive.Cancel asChild>
               <Button
@@ -736,7 +665,6 @@ const EditComposer: FC = () => {
             </ComposerPrimitive.Send>
           </div>
         </ComposerPrimitive.Root>
-      </ComposerPrimitive.Unstable_TriggerPopoverRoot>
     </MessagePrimitive.Root>
   );
 };
