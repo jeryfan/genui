@@ -91,6 +91,20 @@ body {
   }
 }
 
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+}
+
+.aui-attachment-tile-avatar[data-slot="avatar"]::after {
+  display: none !important;
+}
+
+.aui-attachment-tile-avatar .aui-attachment-tile-image {
+  border-radius: 0 !important;
+}
+
 [data-slot="aui_thread-viewport"]::-webkit-scrollbar-track {
   background: transparent;
 }
