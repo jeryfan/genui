@@ -1,3 +1,5 @@
+import { models } from "@/components/chat/models";
+
 export default defineBackground(() => {
   // 禁用全局默认面板，避免未点击的标签页也显示
   browser.sidePanel.setOptions({ enabled: false }).catch(console.error);
@@ -17,5 +19,47 @@ export default defineBackground(() => {
     // sidePanel.open() 必须在用户手势回调中同步调用；
     // 如果前面加了 await/setTimeout/回调，Chrome 会报 user gesture 错误。
     browser.sidePanel.open({ tabId }).catch(console.error);
+  });
+
+  // 在后台处理 AI 流式请求，绕过 side panel 的 CORS 限制
+  browser.runtime.onConnect.addListener((port) => {
+    if (port.name !== 'ai-stream') return;
+
+    let abortController: AbortController | null = null;
+
+    port.onMessage.addListener(async (msg) => {
+      if (msg.type === 'abort') {
+        abortController?.abort();
+        return;
+      }
+
+      if (msg.type !== 'start') return;
+
+      abortController = new AbortController();
+      const { model, messages, systemPrompt } = msg;
+
+      try {
+        const eventStream = models.stream(
+          model,
+          { systemPrompt, messages },
+          { signal: abortController.signal },
+        );
+
+        for await (const event of eventStream) {
+          port.postMessage({ type: 'event', event });
+        }
+
+        port.postMessage({ type: 'done' });
+      } catch (error: any) {
+        port.postMessage({
+          type: 'error',
+          error: error?.message ?? String(error),
+        });
+      }
+    });
+
+    port.onDisconnect.addListener(() => {
+      abortController?.abort();
+    });
   });
 });

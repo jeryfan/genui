@@ -8,6 +8,9 @@ export default defineConfig({
     action: {
       default_title: 'Open Chat Panel',
     },
+    host_permissions: [
+      'https://api.kimi.com/coding/*',
+    ],
   },
   vite: () => ({
     plugins: [tailwindcss()],
