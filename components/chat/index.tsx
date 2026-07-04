@@ -12,6 +12,7 @@ import {
 import type { Message } from "@jeryfan/ai";
 import { AI_MODELS } from "./models";
 import { Chat } from "./chat";
+import { DEFAULT_SYSTEM_PROMPT } from "./system-prompt";
 import { Component, type ReactNode } from "react";
 
 class ChatErrorBoundary extends Component<
@@ -105,13 +106,17 @@ const aiAdapter: ChatModelAdapter = {
       throw new Error(`Model not found: ${modelId}`);
     }
 
-    const systemPrompt = messages
+    const userSystemPrompt = messages
       .filter(
         (m): m is Extract<ThreadMessage, { role: "system" }> =>
           m.role === "system",
       )
       .map(getMessageText)
       .join("\n");
+
+    const systemPrompt = userSystemPrompt
+      ? `${DEFAULT_SYSTEM_PROMPT}\n\n${userSystemPrompt}`
+      : DEFAULT_SYSTEM_PROMPT;
 
     const aiMessages = messages
       .filter((m) => m.role === "user" || m.role === "assistant")
