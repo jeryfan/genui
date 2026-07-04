@@ -2,6 +2,9 @@
 
 import {
   AssistantRuntimeProvider,
+  CompositeAttachmentAdapter,
+  SimpleImageAttachmentAdapter,
+  SimpleTextAttachmentAdapter,
   useLocalRuntime,
   type ChatModelAdapter,
   type ThreadMessage,
@@ -50,6 +53,16 @@ function getMessageText(message: ThreadMessage): string {
     .join("");
 }
 
+function parseDataUrl(dataUrl: string): { mimeType: string; data: string } {
+  if (dataUrl.startsWith("data:")) {
+    const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (match) {
+      return { mimeType: match[1], data: match[2] };
+    }
+  }
+  return { mimeType: "image/*", data: dataUrl };
+}
+
 // 通过 background service worker 流式请求 AI，绕过 side panel 的 CORS 限制
 function createBackgroundStream<T>() {
   const port = browser.runtime.connect({ name: "ai-stream" });
@@ -78,6 +91,11 @@ function createBackgroundStream<T>() {
   };
 }
 
+const attachmentAdapter = new CompositeAttachmentAdapter([
+  new SimpleImageAttachmentAdapter(),
+  new SimpleTextAttachmentAdapter(),
+]);
+
 const aiAdapter: ChatModelAdapter = {
   async *run({ messages, abortSignal, context }) {
     const modelId = context.config?.modelName;
@@ -98,8 +116,8 @@ const aiAdapter: ChatModelAdapter = {
     const aiMessages = messages
       .filter((m) => m.role === "user" || m.role === "assistant")
       .map((m) => {
-        const text = getMessageText(m);
         if (m.role === "assistant") {
+          const text = getMessageText(m);
           // AssistantMessage.content 必须是数组，不能是字符串
           return {
             role: "assistant" as const,
@@ -107,9 +125,39 @@ const aiAdapter: ChatModelAdapter = {
             timestamp: Date.now(),
           };
         }
+
+        const allContent = [
+          ...m.content,
+          ...(m.attachments?.flatMap((att) => att.content ?? []) ?? []),
+        ];
+
+        const content = allContent
+          .map((part) => {
+            if (part.type === "text") {
+              return { type: "text" as const, text: part.text };
+            }
+            if (part.type === "image") {
+              const { mimeType, data } = parseDataUrl(part.image);
+              return { type: "image" as const, data, mimeType };
+            }
+            if (part.type === "file") {
+              return {
+                type: "text" as const,
+                text: `<file name="${part.filename ?? "unknown"}">${part.data}</file>`,
+              };
+            }
+            return null;
+          })
+          .filter((p): p is NonNullable<typeof p> => p !== null);
+
+        const finalContent =
+          content.length === 1 && content[0].type === "text"
+            ? content[0].text
+            : content;
+
         return {
           role: "user" as const,
-          content: text,
+          content: finalContent,
           timestamp: Date.now(),
         };
       }) as Message[];
@@ -171,7 +219,11 @@ const aiAdapter: ChatModelAdapter = {
 };
 
 export function ChatWithProvider() {
-  const runtime = useLocalRuntime(aiAdapter);
+  const runtime = useLocalRuntime(aiAdapter, {
+    adapters: {
+      attachments: attachmentAdapter,
+    },
+  });
 
   return (
     <ChatErrorBoundary>

@@ -91,17 +91,6 @@ body {
   }
 }
 
-/* 防止聊天内部滚动时带动外层 side panel 晃动/回弹 */
-[data-slot="aui_thread-viewport"] {
-  overscroll-behavior-y: contain;
-  overflow-anchor: none;
-}
-
-/* 轻量级自定义滚动条 */
-[data-slot="aui_thread-viewport"]::-webkit-scrollbar {
-  width: 6px;
-}
-
 [data-slot="aui_thread-viewport"]::-webkit-scrollbar-track {
   background: transparent;
 }
