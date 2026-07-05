@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createMarkdownFile } from "../lib/element-picker.ts";
 
 const snapshot = {
+  kind: "viewport",
   selector: "div.card",
   rect: { x: 0, y: 0, width: 320, height: 120, top: 0, left: 0 },
   devicePixelRatio: 2,
@@ -43,6 +44,8 @@ const snapshot = {
 const file = createMarkdownFile(snapshot as any);
 const markdown = await file.text();
 
+assert.match(markdown, /## Snapshot Type/);
+assert.match(markdown, /viewport/);
 assert.match(markdown, /## Element Tree/);
 assert.match(markdown, /div\.card > h2/);
 assert.match(markdown, /font-size: 24px;/);

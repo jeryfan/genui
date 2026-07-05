@@ -12,7 +12,9 @@ export default defineContentScript({
     (window as any).__genuiElementPickerReady = true;
 
     let isSelecting = false;
+    let isViewportSelection = false;
     let overlay: HTMLElement | null = null;
+    let lastHoveredElement: Element | null = null;
 
     function createOverlay() {
       if (overlay) return;
@@ -46,6 +48,34 @@ export default defineContentScript({
       overlay.style.top = `${rect.top}px`;
       overlay.style.width = `${rect.width}px`;
       overlay.style.height = `${rect.height}px`;
+      overlay.style.borderRadius = '4px';
+    }
+
+    function updateViewportOverlay() {
+      if (!overlay) return;
+      overlay.style.display = 'block';
+      overlay.style.left = '0px';
+      overlay.style.top = '0px';
+      overlay.style.width = `${window.innerWidth}px`;
+      overlay.style.height = `${window.innerHeight}px`;
+      overlay.style.borderRadius = '0px';
+    }
+
+    function restoreOverlayAfterCapture() {
+      window.setTimeout(() => {
+        if (!overlay || !isSelecting) return;
+        if (isViewportSelection) {
+          updateViewportOverlay();
+        } else if (lastHoveredElement) {
+          updateOverlay(lastHoveredElement);
+        }
+      }, 800);
+    }
+
+    function hideOverlayForCapture() {
+      if (!overlay) return;
+      overlay.style.display = 'none';
+      restoreOverlayAfterCapture();
     }
 
     function getSelectorPath(element: Element): string {
@@ -168,9 +198,41 @@ export default defineContentScript({
       };
     }
 
-    function extractElementTree(element: Element): ElementTreeNode | undefined {
+    function intersectsViewport(rect: DOMRect): boolean {
+      return (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        rect.right >= 0 &&
+        rect.bottom >= 0 &&
+        rect.left <= window.innerWidth &&
+        rect.top <= window.innerHeight
+      );
+    }
+
+    function extractElementTree(
+      element: Element,
+      options: { viewportOnly?: boolean; isRoot?: boolean } = {},
+    ): ElementTreeNode | undefined {
       const computedStyle = window.getComputedStyle(element);
       if (isHidden(computedStyle)) return undefined;
+
+      const rect = element.getBoundingClientRect();
+      const children = Array.from(element.children)
+        .map((child) =>
+          extractElementTree(child, {
+            viewportOnly: options.viewportOnly,
+          }),
+        )
+        .filter((child): child is ElementTreeNode => child != null);
+
+      if (
+        options.viewportOnly &&
+        !options.isRoot &&
+        !intersectsViewport(rect) &&
+        children.length === 0
+      ) {
+        return undefined;
+      }
 
       const before = extractPseudoElement(element, '::before');
       const after = extractPseudoElement(element, '::after');
@@ -179,14 +241,12 @@ export default defineContentScript({
       return {
         tagName: element.tagName.toLowerCase(),
         selector: getSelectorPath(element),
-        rect: rectToSnapshot(element.getBoundingClientRect()),
+        rect: rectToSnapshot(rect),
         attributes: getRelevantAttributes(element),
         text: getDirectText(element),
         styles: getStyleMap(computedStyle),
         pseudo,
-        children: Array.from(element.children)
-          .map(extractElementTree)
-          .filter((child): child is ElementTreeNode => child != null),
+        children,
       };
     }
 
@@ -195,6 +255,7 @@ export default defineContentScript({
       const computedStyle = window.getComputedStyle(element);
 
       return {
+        kind: 'element',
         selector: getSelectorPath(element),
         rect: rectToSnapshot(rect),
         devicePixelRatio: window.devicePixelRatio,
@@ -210,14 +271,99 @@ export default defineContentScript({
       };
     }
 
+    function getDocumentRect(): ElementRect {
+      const root = document.documentElement;
+      const body = document.body;
+
+      return {
+        x: 0,
+        y: 0,
+        width: Math.max(
+          root.scrollWidth,
+          root.clientWidth,
+          body?.scrollWidth ?? 0,
+          body?.clientWidth ?? 0,
+        ),
+        height: Math.max(
+          root.scrollHeight,
+          root.clientHeight,
+          body?.scrollHeight ?? 0,
+          body?.clientHeight ?? 0,
+        ),
+        top: 0,
+        left: 0,
+      };
+    }
+
+    function extractViewportData() {
+      const root = document.body ?? document.documentElement;
+      const computedStyle = window.getComputedStyle(root);
+      const viewportRect = {
+        x: 0,
+        y: 0,
+        width: window.innerWidth,
+        height: window.innerHeight,
+        top: 0,
+        left: 0,
+      };
+
+      return {
+        kind: 'viewport',
+        selector: 'viewport',
+        rect: viewportRect,
+        devicePixelRatio: window.devicePixelRatio,
+        viewport: {
+          width: window.innerWidth,
+          height: window.innerHeight,
+          scrollX: window.scrollX,
+          scrollY: window.scrollY,
+        },
+        styles: getStyleMap(computedStyle),
+        html: root.outerHTML,
+        tree: extractElementTree(root, {
+          viewportOnly: true,
+          isRoot: true,
+        }),
+      };
+    }
+
+    function extractPageData() {
+      const root = document.body ?? document.documentElement;
+      const computedStyle = window.getComputedStyle(root);
+
+      return {
+        kind: 'page',
+        selector: 'document.body',
+        rect: getDocumentRect(),
+        devicePixelRatio: window.devicePixelRatio,
+        viewport: {
+          width: window.innerWidth,
+          height: window.innerHeight,
+          scrollX: window.scrollX,
+          scrollY: window.scrollY,
+        },
+        styles: getStyleMap(computedStyle),
+        html: root.outerHTML,
+        tree: extractElementTree(root),
+      };
+    }
+
     function handleMouseMove(e: MouseEvent) {
       if (!isSelecting) return;
+      isViewportSelection = e.shiftKey;
+
+      if (isViewportSelection) {
+        updateViewportOverlay();
+        return;
+      }
+
       console.log('[genui] mousemove, isSelecting:', isSelecting);
       const target = document.elementFromPoint(e.clientX, e.clientY);
       if (!target || target === overlay || overlay?.contains(target)) {
         console.log('[genui] mousemove ignored target:', target, 'overlay:', overlay);
         return;
       }
+      lastHoveredElement = target;
       updateOverlay(target);
     }
 
@@ -225,6 +371,17 @@ export default defineContentScript({
       if (!isSelecting) return;
       e.preventDefault();
       e.stopPropagation();
+
+      hideOverlayForCapture();
+
+      if (e.shiftKey || isViewportSelection) {
+        console.log('[genui] viewport selected');
+        browser.runtime.sendMessage({
+          type: 'ELEMENT_SELECTED',
+          data: extractPageData(),
+        });
+        return;
+      }
 
       const target = document.elementFromPoint(e.clientX, e.clientY);
       if (!target) return;
@@ -241,6 +398,20 @@ export default defineContentScript({
         e.stopPropagation();
         stopSelection();
         browser.runtime.sendMessage({ type: 'ELEMENT_SELECTION_CANCELLED' });
+        return;
+      }
+
+      if (e.key === 'Shift' && isSelecting) {
+        isViewportSelection = true;
+        updateViewportOverlay();
+      }
+    }
+
+    function handleKeyUp(e: KeyboardEvent) {
+      if (e.key !== 'Shift') return;
+      isViewportSelection = false;
+      if (lastHoveredElement) {
+        updateOverlay(lastHoveredElement);
       }
     }
 
@@ -251,14 +422,18 @@ export default defineContentScript({
       document.addEventListener('mousemove', handleMouseMove, true);
       document.addEventListener('click', handleClick, true);
       document.addEventListener('keydown', handleKeyDown, true);
+      document.addEventListener('keyup', handleKeyUp, true);
       document.body.style.cursor = 'crosshair';
     }
 
     function stopSelection() {
       isSelecting = false;
+      isViewportSelection = false;
+      lastHoveredElement = null;
       document.removeEventListener('mousemove', handleMouseMove, true);
       document.removeEventListener('click', handleClick, true);
       document.removeEventListener('keydown', handleKeyDown, true);
+      document.removeEventListener('keyup', handleKeyUp, true);
       document.body.style.cursor = '';
       removeOverlay();
     }
@@ -266,6 +441,12 @@ export default defineContentScript({
     browser.runtime.onMessage.addListener((message: { type: string }) => {
       if (message.type === 'PING') {
         return;
+      }
+      if (message.type === 'CAPTURE_VIEWPORT_SNAPSHOT') {
+        return extractViewportData();
+      }
+      if (message.type === 'CAPTURE_PAGE_SNAPSHOT') {
+        return extractPageData();
       }
       if (message.type === 'START_ELEMENT_SELECTION') {
         startSelection();

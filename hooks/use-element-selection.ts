@@ -42,12 +42,12 @@ export function useElementSelection(mode: "continuous" | "single" = "continuous"
       });
   }, [closeSelectionPort]);
 
-  const startSelection = useCallback(async () => {
+  const getActiveTabWithContentScript = useCallback(async () => {
     const [tab] = await browser.tabs.query({
       active: true,
       currentWindow: true,
     });
-    if (!tab?.id) return;
+    if (!tab?.id) return null;
 
     // 确保内容脚本已注入（对于扩展加载前已打开的页面，manifest 注入可能不存在）
     try {
@@ -60,9 +60,16 @@ export function useElementSelection(mode: "continuous" | "single" = "continuous"
         });
       } catch (injectError) {
         console.error("[useElementSelection] inject failed:", injectError);
-        return;
+        return null;
       }
     }
+
+    return tab;
+  }, []);
+
+  const startSelection = useCallback(async () => {
+    const tab = await getActiveTabWithContentScript();
+    if (!tab?.id) return;
 
     closeSelectionPort();
     const port = browser.tabs.connect(tab.id, { name: "element-selection" });
@@ -78,7 +85,7 @@ export function useElementSelection(mode: "continuous" | "single" = "continuous"
     selectionTabIdRef.current = tab.id;
     setIsSelecting(true);
     port.postMessage({ type: "START_ELEMENT_SELECTION" });
-  }, [closeSelectionPort]);
+  }, [closeSelectionPort, getActiveTabWithContentScript]);
 
   const cancelSelection = useCallback(async () => {
     let tabId = selectionTabIdRef.current;
@@ -96,6 +103,35 @@ export function useElementSelection(mode: "continuous" | "single" = "continuous"
     setIsSelecting(false);
   }, [stopSelectionInTab]);
 
+  const capturePage = useCallback(async () => {
+    try {
+      stopSelectionInTab(selectionTabIdRef.current);
+      selectionTabIdRef.current = null;
+      setIsSelecting(false);
+
+      const tab = await getActiveTabWithContentScript();
+      if (!tab?.id || tab.windowId == null) return;
+
+      const data = (await browser.tabs.sendMessage(tab.id, {
+        type: "CAPTURE_PAGE_SNAPSHOT",
+      })) as ElementSnapshot | undefined;
+      if (!data) return;
+
+      const screenshotDataUrl = await browser.tabs.captureVisibleTab(
+        tab.windowId,
+        { format: "png" },
+      );
+
+      const mdFile = createMarkdownFile(data);
+      const screenshotFile = createScreenshotFile(screenshotDataUrl);
+
+      await runtime.addAttachment(mdFile);
+      await runtime.addAttachment(screenshotFile);
+    } catch (error) {
+      console.error("[useElementSelection] page capture failed:", error);
+    }
+  }, [getActiveTabWithContentScript, runtime, stopSelectionInTab]);
+
   const handleElementSelected = useCallback(
     async (data: ElementSnapshot) => {
       // 连续选择模式：保持 isSelecting 为 true，等待用户手动取消
@@ -110,14 +146,18 @@ export function useElementSelection(mode: "continuous" | "single" = "continuous"
           tab.windowId,
           { format: "png" },
         );
-        const croppedDataUrl = await cropScreenshot(
-          screenshotDataUrl,
-          data.rect,
-          data.devicePixelRatio,
-        );
+        const screenshotFile =
+          data.kind === "page" || data.kind === "viewport"
+            ? createScreenshotFile(screenshotDataUrl)
+            : createScreenshotFile(
+                await cropScreenshot(
+                  screenshotDataUrl,
+                  data.rect,
+                  data.devicePixelRatio,
+                ),
+              );
 
         const mdFile = createMarkdownFile(data);
-        const screenshotFile = createScreenshotFile(croppedDataUrl);
 
         await runtime.addAttachment(mdFile);
         await runtime.addAttachment(screenshotFile);
@@ -177,5 +217,6 @@ export function useElementSelection(mode: "continuous" | "single" = "continuous"
     isSelecting,
     startSelection,
     cancelSelection,
+    capturePage,
   };
 }

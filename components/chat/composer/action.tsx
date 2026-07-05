@@ -10,30 +10,47 @@ import {
   MousePointer2Icon,
   SquareIcon,
 } from "lucide-react";
-import { type FC } from "react";
+import { type FC, type MouseEvent } from "react";
 import { useElementSelection } from "@/hooks/use-element-selection";
 import { useSettings } from "@/components/chat/settings/context";
 import { ModelPicker } from "./model-picker";
 
 export const ComposerAction: FC = () => {
   const { settings } = useSettings();
-  const { isSelecting, startSelection, cancelSelection } = useElementSelection(
+  const { isSelecting, startSelection, cancelSelection, capturePage } = useElementSelection(
     settings.general.pickerMode,
   );
+
+  const handleSelectionClick = (event: MouseEvent<HTMLButtonElement>) => {
+    if (event.shiftKey) {
+      capturePage();
+      return;
+    }
+
+    if (isSelecting) {
+      cancelSelection();
+    } else {
+      startSelection();
+    }
+  };
 
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
       <div className="flex items-center gap-1">
         <ComposerAddAttachment />
         <TooltipIconButton
-          tooltip={isSelecting ? "Cancel selection" : "Select element on page"}
+          tooltip={
+            isSelecting
+              ? "Cancel selection · Shift-click to capture page"
+              : "Select element · Shift-click to capture page"
+          }
           side="bottom"
           type="button"
           variant={isSelecting ? "destructive" : "ghost"}
           size="icon"
           className="size-7 rounded-full"
-          aria-label="Select element on page"
-          onClick={isSelecting ? cancelSelection : startSelection}
+          aria-label="Select element or capture page"
+          onClick={handleSelectionClick}
         >
           <MousePointer2Icon className="size-4" />
         </TooltipIconButton>

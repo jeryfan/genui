@@ -27,6 +27,7 @@ export type ElementTreeNode = {
 };
 
 export type ElementSnapshot = {
+  kind?: "element" | "viewport" | "page";
   selector: string;
   rect: ElementRect;
   devicePixelRatio: number;
@@ -117,6 +118,13 @@ function formatElementTreeNode(node: ElementTreeNode, depth = 0): string {
 }
 
 export function createMarkdownFile(data: ElementSnapshot): File {
+  const kind = data.kind ?? "element";
+  const screenshotScope =
+    kind === "page"
+      ? "Current screenshot attachment is the visible viewport only. HTML and Element Tree contain the full captured page DOM available at capture time."
+      : kind === "viewport"
+        ? "Current screenshot attachment is the visible viewport."
+        : "Current screenshot attachment is cropped from the visible viewport, so off-screen portions of the selected element may not appear in the image.";
   const treeContent = data.tree
     ? `\n## Element Tree\n\n${formatElementTreeNode(data.tree)}\n`
     : "";
@@ -125,6 +133,12 @@ export function createMarkdownFile(data: ElementSnapshot): File {
     : "";
 
   const content = `# Element Snapshot
+
+## Snapshot Type
+${kind}
+
+## Screenshot Scope
+${screenshotScope}
 
 ## Selector
 \`\`\`\n${data.selector}\n\`\`\`
@@ -150,7 +164,7 @@ ${data.html}
 \`\`\`
 `;
 
-  return new File([content], `element-${Date.now()}.md`, {
+  return new File([content], `${kind}-${Date.now()}.md`, {
     type: "text/markdown",
   });
 }
