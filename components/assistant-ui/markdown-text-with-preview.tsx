@@ -10,14 +10,7 @@ import {
 } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
 import { type FC, memo, useState } from "react";
-import {
-  CheckIcon,
-  Code,
-  Code2,
-  Code2Icon,
-  CopyIcon,
-  PlayIcon,
-} from "lucide-react";
+import { CheckIcon, CopyIcon, ExternalLinkIcon, PlayIcon } from "lucide-react";
 
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { cn } from "@/lib/utils";
@@ -56,6 +49,14 @@ const CodeBlock: FC<SyntaxHighlighterProps> = ({ language, code }) => {
   const { isCopied, copyToClipboard } = useCopyToClipboard();
   const previewable = language === "html" || language === "vue";
 
+  const handleOpenInNewTab = async () => {
+    const key = `preview-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    await browser.storage.session.set({ [key]: code });
+    await browser.tabs.create({
+      url: browser.runtime.getURL(`/preview.html?key=${key}`),
+    });
+  };
+
   return (
     <div className="my-3 overflow-hidden rounded-xl border">
       <div className="border-border/50 bg-muted/50 flex items-center justify-between border-b px-3.5 py-1.5 text-xs">
@@ -71,10 +72,15 @@ const CodeBlock: FC<SyntaxHighlighterProps> = ({ language, code }) => {
               className={showPreview ? "text-primary" : undefined}
             >
               {showPreview ? (
-                <Code2 className="size-4" />
+                <CodeIcon className="size-4" />
               ) : (
                 <PlayIcon className="size-4" />
               )}
+            </TooltipIconButton>
+          )}
+          {previewable && (
+            <TooltipIconButton tooltip="Open in new tab" onClick={handleOpenInNewTab}>
+              <ExternalLinkIcon className="size-4" />
             </TooltipIconButton>
           )}
           <TooltipIconButton
