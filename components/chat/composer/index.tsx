@@ -2,6 +2,7 @@
 
 import { ComposerTriggerPopover } from "@/components/assistant-ui/composer-trigger-popover";
 import { DirectiveChip } from "@/components/assistant-ui/directive-chip";
+import { ReactIcon, VueIcon } from "@/components/assistant-ui/mention-icons";
 import { ComposerAttachments } from "@/components/assistant-ui/attachment";
 import { ComposerQuotePreview } from "@/components/assistant-ui/quote";
 import {
@@ -10,17 +11,35 @@ import {
   unstable_useSlashCommandAdapter,
 } from "@assistant-ui/react";
 import { LexicalComposerInput } from "@assistant-ui/react-lexical";
-import { WrenchIcon } from "lucide-react";
 import { type FC } from "react";
 import { ComposerAction } from "./action";
+import { useSettings } from "@/components/chat/settings/context";
 import {
   slashCommands,
   slashFallbackIcon,
   slashIconMap,
 } from "./slash-commands";
 
+const mentionIconMap = {
+  React: ReactIcon,
+  Vue: VueIcon,
+};
+
 export const Composer: FC = () => {
-  const mention = unstable_useMentionAdapter({ fallbackIcon: WrenchIcon });
+  const { settings } = useSettings();
+
+  const mentionItems = settings.mentions.map((m) => ({
+    id: m.id,
+    type: m.type,
+    label: m.label,
+    description: m.description,
+    icon: m.icon,
+  }));
+
+  const mention = unstable_useMentionAdapter({
+    items: mentionItems,
+    iconMap: mentionIconMap,
+  });
   const slash = unstable_useSlashCommandAdapter({
     commands: slashCommands,
     iconMap: slashIconMap,

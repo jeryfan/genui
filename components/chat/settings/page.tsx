@@ -7,13 +7,15 @@ import { useState, type FC } from "react";
 import { ModelsSection } from "./sections/models";
 import { SystemPromptSection } from "./sections/system-prompt";
 import { GeneralSection } from "./sections/general";
+import { MentionsSection } from "./sections/mentions";
 
-type SettingsTab = "models" | "system-prompt" | "general";
+type SettingsTab = "models" | "system-prompt" | "general" | "mentions";
 
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: "models", label: "Models" },
   { id: "system-prompt", label: "System Prompt" },
   { id: "general", label: "General" },
+  { id: "mentions", label: "Mentions" },
 ];
 
 export const SettingsPage: FC<{ onBack?: () => void }> = ({ onBack }) => {
@@ -51,6 +53,7 @@ export const SettingsPage: FC<{ onBack?: () => void }> = ({ onBack }) => {
         {activeTab === "models" && <ModelsSection />}
         {activeTab === "system-prompt" && <SystemPromptSection />}
         {activeTab === "general" && <GeneralSection />}
+        {activeTab === "mentions" && <MentionsSection />}
       </main>
     </div>
   );

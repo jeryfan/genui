@@ -5,6 +5,7 @@ import {
   CompositeAttachmentAdapter,
   SimpleImageAttachmentAdapter,
   SimpleTextAttachmentAdapter,
+  unstable_defaultDirectiveFormatter,
   useLocalRuntime,
   type ChatModelAdapter,
   type ThreadMessage,
@@ -23,7 +24,7 @@ import {
   createModelsFromConfigs,
   findModelByRuntimeKey,
 } from "./settings/models";
-import { type Settings } from "./settings/types";
+import { type Settings, type Mention } from "./settings/types";
 
 class ChatErrorBoundary extends Component<
   { children: ReactNode },
@@ -72,6 +73,24 @@ function parseDataUrl(dataUrl: string): { mimeType: string; data: string } {
     }
   }
   return { mimeType: "image/*", data: dataUrl };
+}
+
+function expandMentions(text: string, mentions: Mention[]): string {
+  const segments = unstable_defaultDirectiveFormatter.parse(text);
+  return segments
+    .map((seg) => {
+      if (seg.kind === "mention") {
+        const mention = mentions.find(
+          (m) => m.id === seg.id && m.type === seg.type,
+        );
+        if (mention) {
+          return `\n\n${mention.content}\n\n`;
+        }
+        return `:${seg.type}[${seg.label}]{name=${seg.id}}`;
+      }
+      return seg.text;
+    })
+    .join("");
 }
 
 function createBackgroundStream<T>() {
@@ -156,7 +175,10 @@ function createAiAdapter(
           const content = allContent
             .map((part) => {
               if (part.type === "text") {
-                return { type: "text" as const, text: part.text };
+                return {
+                  type: "text" as const,
+                  text: expandMentions(part.text, settings.mentions),
+                };
               }
               if (part.type === "image") {
                 const { mimeType, data } = parseDataUrl(part.image);

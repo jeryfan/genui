@@ -4,6 +4,16 @@ export type OutputFormat = "html" | "react" | "vue";
 export type PickerMode = "continuous" | "single";
 export type CapturePart = "screenshot" | "html" | "tree";
 
+export interface Mention {
+  id: string;
+  type: string;
+  label: string;
+  description?: string;
+  content: string;
+  icon?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface ModelConfig extends Model<Api> {
   apiKey: string;
 }
@@ -18,6 +28,7 @@ export interface Settings {
   models: ModelConfig[];
   systemPrompt: string;
   general: GeneralSettings;
+  mentions: Mention[];
 }
 
 export const DEFAULT_SYSTEM_PROMPT = `你是一位像素级 UI-to-code 复刻工程师。你的任务不是重新设计页面，而是根据用户提供的截图、HTML 和 computed styles，完整、精确地复刻目标 UI，生成可直接运行的代码。
@@ -197,4 +208,22 @@ export const DEFAULT_SETTINGS: Settings = {
   models: [DEFAULT_MODEL_CONFIG],
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
   general: DEFAULT_GENERAL_SETTINGS,
+  mentions: [
+    {
+      id: "react",
+      type: "prompt",
+      label: "React",
+      description: "React + TypeScript + Tailwind CSS 规范组件",
+      content: `使用 React + TypeScript + Tailwind CSS 技术栈实现。\n\n要求：\n- 组件结构清晰，合理拆分 presentational 和 container 组件；\n- 使用 TypeScript，为 props、state、refs 定义完整类型；\n- 使用 Tailwind CSS 进行样式处理，避免内联样式；\n- 状态管理使用 Zustand，按功能模块拆分 store；\n- 图标使用 lucide-react；\n- 表单处理使用 react-hook-form 或受控组件；\n- 数据请求使用 TanStack Query（React Query）；\n- 目录结构：components/、hooks/、stores/、lib/、types/；\n- 导出可复用的 hooks 和工具函数；\n- 代码符合 React 社区规范，使用函数组件和 Hooks；\n- 提供可直接运行的完整文件。`,
+      icon: "React",
+    },
+    {
+      id: "vue",
+      type: "prompt",
+      label: "Vue 3",
+      description: "Vue 3 + TypeScript + Tailwind CSS 规范组件",
+      content: `使用 Vue 3 + TypeScript + Tailwind CSS 技术栈实现。\n\n要求：\n- 使用 \u003cscript setup lang="ts"\u003e 语法；\n- 组件结构清晰，合理拆分；\n- 使用 TypeScript，为 props、emits、refs 定义完整类型；\n- 使用 Tailwind CSS 进行样式处理，避免内联样式；\n- 状态管理使用 Pinia，按功能模块拆分 store；\n- 图标使用 lucide-vue 或 inline SVG；\n- 表单处理使用 vee-validate 或受控组件；\n- 数据请求使用 TanStack Query（Vue Query）；\n- 目录结构：components/、composables/、stores/、lib/、types/；\n- 导出可复用的 composables 和工具函数；\n- 代码符合 Vue 社区规范；\n- 提供可直接运行的完整文件。`,
+      icon: "Vue",
+    },
+  ],
 };
