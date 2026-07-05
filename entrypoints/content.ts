@@ -237,6 +237,8 @@ export default defineContentScript({
 
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
         stopSelection();
         browser.runtime.sendMessage({ type: 'ELEMENT_SELECTION_CANCELLED' });
       }
@@ -270,6 +272,22 @@ export default defineContentScript({
       } else if (message.type === 'STOP_ELEMENT_SELECTION') {
         stopSelection();
       }
+    });
+
+    browser.runtime.onConnect.addListener((port) => {
+      if (port.name !== 'element-selection') return;
+
+      port.onMessage.addListener((message: { type: string }) => {
+        if (message.type === 'START_ELEMENT_SELECTION') {
+          startSelection();
+        } else if (message.type === 'STOP_ELEMENT_SELECTION') {
+          stopSelection();
+        }
+      });
+
+      port.onDisconnect.addListener(() => {
+        stopSelection();
+      });
     });
 
     console.log('[genui] content script ready');

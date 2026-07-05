@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useComposerRuntime } from "@assistant-ui/react";
 import {
   createMarkdownFile,
@@ -13,6 +13,34 @@ import {
 export function useElementSelection(mode: "continuous" | "single" = "continuous") {
   const runtime = useComposerRuntime();
   const [isSelecting, setIsSelecting] = useState(false);
+  const selectionTabIdRef = useRef<number | null>(null);
+  const selectionPortRef = useRef<ReturnType<typeof browser.tabs.connect> | null>(null);
+
+  const closeSelectionPort = useCallback(() => {
+    const port = selectionPortRef.current;
+    selectionPortRef.current = null;
+    try {
+      port?.disconnect();
+    } catch {
+      // The port may already be disconnected when the side panel is closing.
+    }
+  }, []);
+
+  const stopSelectionInTab = useCallback((tabId: number | null) => {
+    try {
+      selectionPortRef.current?.postMessage({ type: "STOP_ELEMENT_SELECTION" });
+    } catch {
+      // The port may already be disconnected.
+    }
+    closeSelectionPort();
+
+    if (tabId == null) return;
+    browser.tabs
+      .sendMessage(tabId, { type: "STOP_ELEMENT_SELECTION" })
+      .catch(() => {
+        // The target tab may have navigated or the content script may be gone.
+      });
+  }, [closeSelectionPort]);
 
   const startSelection = useCallback(async () => {
     const [tab] = await browser.tabs.query({
@@ -36,20 +64,37 @@ export function useElementSelection(mode: "continuous" | "single" = "continuous"
       }
     }
 
+    closeSelectionPort();
+    const port = browser.tabs.connect(tab.id, { name: "element-selection" });
+    selectionPortRef.current = port;
+    port.onDisconnect.addListener(() => {
+      if (selectionPortRef.current === port) {
+        selectionPortRef.current = null;
+        selectionTabIdRef.current = null;
+        setIsSelecting(false);
+      }
+    });
+
+    selectionTabIdRef.current = tab.id;
     setIsSelecting(true);
-    browser.tabs.sendMessage(tab.id, { type: "START_ELEMENT_SELECTION" });
-  }, []);
+    port.postMessage({ type: "START_ELEMENT_SELECTION" });
+  }, [closeSelectionPort]);
 
   const cancelSelection = useCallback(async () => {
-    const [tab] = await browser.tabs.query({
-      active: true,
-      currentWindow: true,
-    });
-    if (tab?.id) {
-      browser.tabs.sendMessage(tab.id, { type: "STOP_ELEMENT_SELECTION" });
+    let tabId = selectionTabIdRef.current;
+
+    if (tabId == null) {
+      const [tab] = await browser.tabs.query({
+        active: true,
+        currentWindow: true,
+      });
+      tabId = tab?.id ?? null;
     }
+
+    stopSelectionInTab(tabId);
+    selectionTabIdRef.current = null;
     setIsSelecting(false);
-  }, []);
+  }, [stopSelectionInTab]);
 
   const handleElementSelected = useCallback(
     async (data: ElementSnapshot) => {
@@ -79,9 +124,8 @@ export function useElementSelection(mode: "continuous" | "single" = "continuous"
 
         if (mode === "single") {
           setIsSelecting(false);
-          if (tab.id) {
-            browser.tabs.sendMessage(tab.id, { type: "STOP_ELEMENT_SELECTION" });
-          }
+          selectionTabIdRef.current = null;
+          stopSelectionInTab(tab.id ?? null);
         }
       } catch (error) {
         console.error("[useElementSelection] failed:", error);
@@ -95,6 +139,7 @@ export function useElementSelection(mode: "continuous" | "single" = "continuous"
       if (message.type === "ELEMENT_SELECTED") {
         handleElementSelected(message.data);
       } else if (message.type === "ELEMENT_SELECTION_CANCELLED") {
+        selectionTabIdRef.current = null;
         setIsSelecting(false);
       }
     };
@@ -104,6 +149,29 @@ export function useElementSelection(mode: "continuous" | "single" = "continuous"
       browser.runtime.onMessage.removeListener(listener);
     };
   }, [handleElementSelected]);
+
+  useEffect(() => {
+    return () => {
+      stopSelectionInTab(selectionTabIdRef.current);
+      selectionTabIdRef.current = null;
+    };
+  }, [stopSelectionInTab]);
+
+  useEffect(() => {
+    if (!isSelecting) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      cancelSelection();
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [isSelecting, cancelSelection]);
 
   return {
     isSelecting,
