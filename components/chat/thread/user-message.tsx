@@ -1,6 +1,7 @@
 "use client";
 
 import { UserMessageAttachments } from "@/components/assistant-ui/attachment";
+import { DirectiveText } from "@/components/assistant-ui/directive-text";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { QuoteBlock } from "@/components/assistant-ui/quote";
 import { ActionBarPrimitive, MessagePrimitive } from "@assistant-ui/react";
@@ -38,7 +39,7 @@ export const UserMessage: FC = () => {
           <MessagePrimitive.Quote>
             {(quote) => <QuoteBlock {...quote} />}
           </MessagePrimitive.Quote>
-          <MessagePrimitive.Parts />
+          <MessagePrimitive.Parts components={{ Text: DirectiveText }} />
         </div>
         <div className="aui-user-action-bar-wrapper absolute top-1/2 left-0 -translate-x-full -translate-y-1/2 pr-2 peer-empty:hidden">
           <UserActionBar />
