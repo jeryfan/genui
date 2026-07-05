@@ -11,7 +11,7 @@ export const ThreadTitle: FC = () => {
 
   return (
     <span className="min-w-0 truncate text-sm font-medium">
-      {title ?? "New Chat"}
+      {title}
     </span>
   );
 };

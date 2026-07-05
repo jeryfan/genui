@@ -9,8 +9,7 @@ import {
   type ChatModelAdapter,
   type ThreadMessage,
 } from "@assistant-ui/react";
-import type { Message } from "@jeryfan/ai";
-import type { AssistantMessageEvent } from "@jeryfan/ai";
+import type { Message, AssistantMessageEvent, Usage } from "@jeryfan/ai";
 import {
   Component,
   useEffect,
@@ -187,7 +186,7 @@ function createAiAdapter(
 
       const { port, next } = createBackgroundStream<
         | { type: "event"; event: AssistantMessageEvent }
-        | { type: "done" }
+        | { type: "done"; usage?: Usage }
         | { type: "error"; error: string }
       >();
 
@@ -229,6 +228,8 @@ function createAiAdapter(
                 break;
               case "done": {
                 const textPart = { type: "text" as const, text: fullText };
+                const usage = event.message?.usage;
+                const metadata = usage ? { custom: { usage } } : undefined;
                 if (event.reason === "length") {
                   yield {
                     content: [textPart],
@@ -237,16 +238,19 @@ function createAiAdapter(
                       reason: "length",
                       error: "输出已截断，可能因 token 限制未完整生成",
                     },
+                    metadata,
                   };
                 } else if (event.reason === "toolUse") {
                   yield {
                     content: [textPart],
                     status: { type: "requires-action", reason: "tool-calls" },
+                    metadata,
                   };
                 } else {
                   yield {
                     content: [textPart],
                     status: { type: "complete", reason: "stop" },
+                    metadata,
                   };
                 }
                 return;

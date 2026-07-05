@@ -1,6 +1,7 @@
 "use client";
 
 import { SelectionToolbar } from "@/components/assistant-ui/quote";
+import { AssistantFooter } from "@/components/chat/composer/footer";
 import { cn } from "@/lib/utils";
 import {
   AuiIf,
@@ -61,7 +62,7 @@ export const ChatThread: FC = () => {
 
         <ThreadPrimitive.ViewportFooter
           className={cn(
-            "aui-thread-viewport-footer bg-background mx-auto flex w-full max-w-(--thread-max-width) flex-col gap-4 overflow-visible pb-4 md:pb-6",
+            "aui-thread-viewport-footer bg-background mx-auto flex w-full max-w-(--thread-max-width) flex-col gap-4 overflow-visible",
             !isEmpty && "sticky bottom-0 mt-auto rounded-t-(--composer-radius)",
           )}
         >
@@ -71,6 +72,7 @@ export const ChatThread: FC = () => {
       </ThreadPrimitive.Viewport>
 
       <SelectionToolbar />
+      <AssistantFooter />
     </ThreadPrimitive.Root>
   );
 };

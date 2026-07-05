@@ -1,5 +1,6 @@
 import { loadSettings } from "@/components/chat/settings/storage";
 import { createModelsFromConfigs } from "@/components/chat/settings/models";
+import type { Usage } from "@jeryfan/ai";
 
 export default defineBackground(() => {
   // 禁用全局默认面板，避免未点击的标签页也显示
@@ -49,11 +50,16 @@ export default defineBackground(() => {
           { signal: abortController.signal },
         );
 
+        let lastUsage: Usage | undefined;
+
         for await (const event of eventStream) {
           port.postMessage({ type: 'event', event });
+          if (event.type === 'done') {
+            lastUsage = event.message?.usage;
+          }
         }
 
-        port.postMessage({ type: 'done' });
+        port.postMessage({ type: 'done', usage: lastUsage });
       } catch (error: any) {
         port.postMessage({
           type: 'error',
