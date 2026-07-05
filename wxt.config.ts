@@ -9,10 +9,15 @@ export default defineConfig({
     action: {
       default_title: 'Open Chat Panel',
     },
+    options_ui: {
+      page: 'options.html',
+      open_in_tab: true,
+    },
     permissions: [
       'tabs',
       'activeTab',
       'scripting',
+      'storage',
     ],
     host_permissions: [
       '<all_urls>',

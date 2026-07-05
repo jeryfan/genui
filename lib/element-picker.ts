@@ -7,12 +7,38 @@ export type ElementRect = {
   left: number;
 };
 
+export type PseudoElementSnapshot = {
+  styles: Record<string, string>;
+  content?: string;
+};
+
+export type ElementTreeNode = {
+  tagName: string;
+  selector: string;
+  rect: ElementRect;
+  attributes: Record<string, string>;
+  text: string;
+  styles: Record<string, string>;
+  pseudo?: {
+    before?: PseudoElementSnapshot;
+    after?: PseudoElementSnapshot;
+  };
+  children: ElementTreeNode[];
+};
+
 export type ElementSnapshot = {
   selector: string;
   rect: ElementRect;
   devicePixelRatio: number;
+  viewport?: {
+    width: number;
+    height: number;
+    scrollX: number;
+    scrollY: number;
+  };
   styles: Record<string, string>;
   html: string;
+  tree?: ElementTreeNode;
 };
 
 export type ElementSelectedMessage = {
@@ -28,10 +54,75 @@ export type ElementPickerMessage =
   | ElementSelectedMessage
   | ElementSelectionCancelledMessage;
 
-export function createMarkdownFile(data: ElementSnapshot): File {
-  const styleEntries = Object.entries(data.styles).map(
-    ([prop, value]) => `${prop}: ${value};`,
+function formatStyles(styles: Record<string, string>): string {
+  return Object.entries(styles)
+    .map(([prop, value]) => `${prop}: ${value};`)
+    .join("\n");
+}
+
+function formatAttributes(attributes: Record<string, string>): string {
+  const entries = Object.entries(attributes);
+  if (entries.length === 0) return "- Attributes: none";
+
+  return [
+    "- Attributes:",
+    ...entries.map(([name, value]) => `  - ${name}: ${value}`),
+  ].join("\n");
+}
+
+function formatRect(rect: ElementRect): string {
+  return [
+    `- Rect: x=${rect.x}, y=${rect.y}, width=${rect.width}, height=${rect.height}, top=${rect.top}, left=${rect.left}`,
+  ].join("\n");
+}
+
+function formatPseudoElement(
+  name: "before" | "after",
+  pseudo: PseudoElementSnapshot,
+): string {
+  return [
+    `#### ::${name}`,
+    pseudo.content ? `- Content: ${pseudo.content}` : "- Content: none",
+    "```css",
+    formatStyles(pseudo.styles),
+    "```",
+  ].join("\n");
+}
+
+function formatElementTreeNode(node: ElementTreeNode, depth = 0): string {
+  const headingLevel = Math.min(3 + depth, 6);
+  const heading = `${"#".repeat(headingLevel)} ${node.selector}`;
+  const pseudo = [
+    node.pseudo?.before ? formatPseudoElement("before", node.pseudo.before) : "",
+    node.pseudo?.after ? formatPseudoElement("after", node.pseudo.after) : "",
+  ].filter(Boolean);
+  const children = node.children.map((child) =>
+    formatElementTreeNode(child, depth + 1),
   );
+
+  return [
+    heading,
+    `- Tag: ${node.tagName}`,
+    formatRect(node.rect),
+    formatAttributes(node.attributes),
+    node.text ? `- Text: ${node.text}` : "- Text: none",
+    "```css",
+    formatStyles(node.styles),
+    "```",
+    ...pseudo,
+    ...children,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+export function createMarkdownFile(data: ElementSnapshot): File {
+  const treeContent = data.tree
+    ? `\n## Element Tree\n\n${formatElementTreeNode(data.tree)}\n`
+    : "";
+  const viewportContent = data.viewport
+    ? `\n## Viewport\n| Key | Value |\n| --- | --- |\n| width | ${data.viewport.width} |\n| height | ${data.viewport.height} |\n| scrollX | ${data.viewport.scrollX} |\n| scrollY | ${data.viewport.scrollY} |\n`
+    : "";
 
   const content = `# Element Snapshot
 
@@ -47,12 +138,12 @@ export function createMarkdownFile(data: ElementSnapshot): File {
 | height | ${data.rect.height} |
 | top | ${data.rect.top} |
 | left | ${data.rect.left} |
-
-## Computed Styles
+${viewportContent}
+## Root Computed Styles
 \`\`\`css
-${styleEntries.join("\n")}
+${formatStyles(data.styles)}
 \`\`\`
-
+${treeContent}
 ## HTML
 \`\`\`html
 ${data.html}

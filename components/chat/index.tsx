@@ -10,10 +10,20 @@ import {
   type ThreadMessage,
 } from "@assistant-ui/react";
 import type { Message } from "@jeryfan/ai";
-import { AI_MODELS } from "./models";
+import {
+  Component,
+  useEffect,
+  useMemo,
+  useRef,
+  type ReactNode,
+} from "react";
 import { Chat } from "./chat";
-import { DEFAULT_SYSTEM_PROMPT } from "./system-prompt";
-import { Component, type ReactNode } from "react";
+import { SettingsProvider, useSettings } from "./settings/context";
+import {
+  createModelsFromConfigs,
+  findModelByRuntimeKey,
+} from "./settings/models";
+import { type Settings } from "./settings/types";
 
 class ChatErrorBoundary extends Component<
   { children: ReactNode },
@@ -64,7 +74,6 @@ function parseDataUrl(dataUrl: string): { mimeType: string; data: string } {
   return { mimeType: "image/*", data: dataUrl };
 }
 
-// 通过 background service worker 流式请求 AI，绕过 side panel 的 CORS 限制
 function createBackgroundStream<T>() {
   const port = browser.runtime.connect({ name: "ai-stream" });
   const queue: T[] = [];
@@ -97,134 +106,165 @@ const attachmentAdapter = new CompositeAttachmentAdapter([
   new SimpleTextAttachmentAdapter(),
 ]);
 
-const aiAdapter: ChatModelAdapter = {
-  async *run({ messages, abortSignal, context }) {
-    const modelId = context.config?.modelName;
-    const model = AI_MODELS.find((m) => m.id === modelId);
+function createAiAdapter(
+  settingsRef: React.MutableRefObject<Settings>,
+): ChatModelAdapter {
+  return {
+    async *run({ messages, abortSignal, context }) {
+      const settings = settingsRef.current;
+      const modelId = context.config?.modelName;
+      const models = createModelsFromConfigs(settings.models);
+      const model = findModelByRuntimeKey(models.getModels(), modelId);
 
-    if (!model) {
-      throw new Error(`Model not found: ${modelId}`);
-    }
+      if (!model) {
+        throw new Error(`Model not found: ${modelId}`);
+      }
 
-    const userSystemPrompt = messages
-      .filter(
-        (m): m is Extract<ThreadMessage, { role: "system" }> =>
-          m.role === "system",
-      )
-      .map(getMessageText)
-      .join("\n");
+      const userSystemPrompt = messages
+        .filter(
+          (m): m is Extract<ThreadMessage, { role: "system" }> =>
+            m.role === "system",
+        )
+        .map(getMessageText)
+        .join("\n");
 
-    const systemPrompt = userSystemPrompt
-      ? `${DEFAULT_SYSTEM_PROMPT}\n\n${userSystemPrompt}`
-      : DEFAULT_SYSTEM_PROMPT;
+      const formatInstruction = settings.general.defaultFormat
+        ? `When the user does not explicitly ask for a format, generate ${settings.general.defaultFormat.toUpperCase()} code by default.`
+        : "";
 
-    const aiMessages = messages
-      .filter((m) => m.role === "user" || m.role === "assistant")
-      .map((m) => {
-        if (m.role === "assistant") {
-          const text = getMessageText(m);
-          // AssistantMessage.content 必须是数组，不能是字符串
+      const systemPrompt = [settings.systemPrompt, formatInstruction, userSystemPrompt]
+        .filter(Boolean)
+        .join("\n\n");
+
+      const aiMessages = messages
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => {
+          if (m.role === "assistant") {
+            const text = getMessageText(m);
+            return {
+              role: "assistant" as const,
+              content: [{ type: "text" as const, text }],
+              timestamp: Date.now(),
+            };
+          }
+
+          const allContent = [
+            ...m.content,
+            ...(m.attachments?.flatMap((att) => att.content ?? []) ?? []),
+          ];
+
+          const content = allContent
+            .map((part) => {
+              if (part.type === "text") {
+                return { type: "text" as const, text: part.text };
+              }
+              if (part.type === "image") {
+                const { mimeType, data } = parseDataUrl(part.image);
+                return { type: "image" as const, data, mimeType };
+              }
+              if (part.type === "file") {
+                return {
+                  type: "text" as const,
+                  text: `<file name="${part.filename ?? "unknown"}">${part.data}</file>`,
+                };
+              }
+              return null;
+            })
+            .filter((p): p is NonNullable<typeof p> => p !== null);
+
+          const finalContent =
+            content.length === 1 && content[0].type === "text"
+              ? content[0].text
+              : content;
+
           return {
-            role: "assistant" as const,
-            content: [{ type: "text" as const, text }],
+            role: "user" as const,
+            content: finalContent,
             timestamp: Date.now(),
           };
-        }
+        }) as Message[];
 
-        const allContent = [
-          ...m.content,
-          ...(m.attachments?.flatMap((att) => att.content ?? []) ?? []),
-        ];
+      const { port, next } = createBackgroundStream<
+        | { type: "event"; event: any }
+        | { type: "done" }
+        | { type: "error"; error: string }
+      >();
 
-        const content = allContent
-          .map((part) => {
-            if (part.type === "text") {
-              return { type: "text" as const, text: part.text };
+      port.postMessage({
+        type: "start",
+        model,
+        messages: aiMessages,
+        systemPrompt,
+      });
+
+      const onAbort = () => port.postMessage({ type: "abort" });
+      abortSignal?.addEventListener("abort", onAbort);
+
+      try {
+        let fullText = "";
+
+        while (true) {
+          const msg = await next();
+
+          if (msg.type === "done") {
+            return;
+          }
+
+          if (msg.type === "error") {
+            throw new Error(msg.error);
+          }
+
+          if (msg.type === "event") {
+            const event = msg.event;
+            switch (event.type) {
+              case "text_start":
+                yield { content: [{ type: "text" as const, text: "" }] };
+                break;
+              case "text_delta":
+                fullText += event.delta;
+                yield { content: [{ type: "text" as const, text: fullText }] };
+                break;
+              case "text_end":
+                break;
+              case "done":
+                return;
+              case "error":
+                throw new Error(
+                  event.error.errorMessage ?? "AI request failed",
+                );
             }
-            if (part.type === "image") {
-              const { mimeType, data } = parseDataUrl(part.image);
-              return { type: "image" as const, data, mimeType };
-            }
-            if (part.type === "file") {
-              return {
-                type: "text" as const,
-                text: `<file name="${part.filename ?? "unknown"}">${part.data}</file>`,
-              };
-            }
-            return null;
-          })
-          .filter((p): p is NonNullable<typeof p> => p !== null);
-
-        const finalContent =
-          content.length === 1 && content[0].type === "text"
-            ? content[0].text
-            : content;
-
-        return {
-          role: "user" as const,
-          content: finalContent,
-          timestamp: Date.now(),
-        };
-      }) as Message[];
-
-    const { port, next } = createBackgroundStream<
-      | { type: "event"; event: any }
-      | { type: "done" }
-      | { type: "error"; error: string }
-    >();
-
-    port.postMessage({
-      type: "start",
-      model,
-      messages: aiMessages,
-      systemPrompt,
-    });
-
-    const onAbort = () => port.postMessage({ type: "abort" });
-    abortSignal?.addEventListener("abort", onAbort);
-
-    try {
-      let fullText = "";
-
-      while (true) {
-        const msg = await next();
-
-        if (msg.type === "done") {
-          return;
-        }
-
-        if (msg.type === "error") {
-          throw new Error(msg.error);
-        }
-
-        if (msg.type === "event") {
-          const event = msg.event;
-          switch (event.type) {
-            case "text_start":
-              yield { content: [{ type: "text" as const, text: "" }] };
-              break;
-            case "text_delta":
-              fullText += event.delta;
-              yield { content: [{ type: "text" as const, text: fullText }] };
-              break;
-            case "text_end":
-              break;
-            case "done":
-              return;
-            case "error":
-              throw new Error(event.error.errorMessage ?? "AI request failed");
           }
         }
+      } finally {
+        abortSignal?.removeEventListener("abort", onAbort);
+        port.disconnect();
       }
-    } finally {
-      abortSignal?.removeEventListener("abort", onAbort);
-      port.disconnect();
-    }
-  },
-};
+    },
+  };
+}
 
 export function ChatWithProvider() {
-  const runtime = useLocalRuntime(aiAdapter, {
+  return (
+    <SettingsProvider>
+      <ChatWithProviderInner />
+    </SettingsProvider>
+  );
+}
+
+function ChatWithProviderInner() {
+  const { settings } = useSettings();
+  const settingsRef = useRef(settings);
+
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
+  const adapter = useMemo(
+    () => createAiAdapter(settingsRef),
+    [],
+  );
+
+  const runtime = useLocalRuntime(adapter, {
     adapters: {
       attachments: attachmentAdapter,
     },

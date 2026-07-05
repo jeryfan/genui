@@ -12,11 +12,14 @@ import {
 } from "lucide-react";
 import { type FC } from "react";
 import { useElementSelection } from "@/hooks/use-element-selection";
+import { useSettings } from "@/components/chat/settings/context";
 import { ModelPicker } from "./model-picker";
 
 export const ComposerAction: FC = () => {
-  const { isSelecting, startSelection, cancelSelection } =
-    useElementSelection();
+  const { settings } = useSettings();
+  const { isSelecting, startSelection, cancelSelection } = useElementSelection(
+    settings.general.pickerMode,
+  );
 
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">

@@ -10,7 +10,7 @@ import {
   type ElementSnapshot,
 } from "@/lib/element-picker";
 
-export function useElementSelection() {
+export function useElementSelection(mode: "continuous" | "single" = "continuous") {
   const runtime = useComposerRuntime();
   const [isSelecting, setIsSelecting] = useState(false);
 
@@ -76,11 +76,18 @@ export function useElementSelection() {
 
         await runtime.addAttachment(mdFile);
         await runtime.addAttachment(screenshotFile);
+
+        if (mode === "single") {
+          setIsSelecting(false);
+          if (tab.id) {
+            browser.tabs.sendMessage(tab.id, { type: "STOP_ELEMENT_SELECTION" });
+          }
+        }
       } catch (error) {
         console.error("[useElementSelection] failed:", error);
       }
     },
-    [runtime],
+    [runtime, mode],
   );
 
   useEffect(() => {

@@ -1,3 +1,9 @@
+import type {
+  ElementRect,
+  ElementTreeNode,
+  PseudoElementSnapshot,
+} from "@/lib/element-picker";
+
 export default defineContentScript({
   matches: ['<all_urls>'],
   main() {
@@ -66,32 +72,141 @@ export default defineContentScript({
       return path.join(' > ');
     }
 
-    function extractElementData(element: Element) {
-      const rect = element.getBoundingClientRect();
-      const computedStyle = window.getComputedStyle(element);
+    function rectToSnapshot(rect: DOMRect): ElementRect {
+      return {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+        top: rect.top,
+        left: rect.left,
+      };
+    }
+
+    function getStyleMap(style: CSSStyleDeclaration): Record<string, string> {
       const styles: Record<string, string> = {};
 
-      for (let i = 0; i < computedStyle.length; i++) {
-        const prop = computedStyle[i];
-        const value = computedStyle.getPropertyValue(prop);
+      for (let i = 0; i < style.length; i++) {
+        const prop = style[i];
+        const value = style.getPropertyValue(prop);
         if (value && value !== 'initial' && value !== 'none') {
           styles[prop] = value;
         }
       }
 
+      return styles;
+    }
+
+    function getRelevantAttributes(element: Element): Record<string, string> {
+      const attributes: Record<string, string> = {};
+      const allowed = new Set([
+        'id',
+        'class',
+        'role',
+        'href',
+        'src',
+        'alt',
+        'title',
+        'type',
+        'value',
+        'placeholder',
+        'name',
+        'target',
+        'rel',
+      ]);
+
+      for (const attr of Array.from(element.attributes)) {
+        if (
+          allowed.has(attr.name) ||
+          attr.name.startsWith('aria-') ||
+          attr.name.startsWith('data-')
+        ) {
+          attributes[attr.name] = attr.value;
+        }
+      }
+
+      return attributes;
+    }
+
+    function getDirectText(element: Element): string {
+      return Array.from(element.childNodes)
+        .filter((node) => node.nodeType === Node.TEXT_NODE)
+        .map((node) => node.textContent?.trim() ?? '')
+        .filter(Boolean)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .slice(0, 500);
+    }
+
+    function isHidden(style: CSSStyleDeclaration): boolean {
+      return (
+        style.display === 'none' ||
+        style.visibility === 'hidden' ||
+        style.opacity === '0'
+      );
+    }
+
+    function extractPseudoElement(
+      element: Element,
+      pseudoElement: '::before' | '::after',
+    ): PseudoElementSnapshot | undefined {
+      const style = window.getComputedStyle(element, pseudoElement);
+      const content = style.getPropertyValue('content');
+
+      if (
+        isHidden(style) ||
+        (!content || content === 'none') &&
+          style.getPropertyValue('background-image') === 'none' &&
+          style.getPropertyValue('background-color') === 'rgba(0, 0, 0, 0)'
+      ) {
+        return undefined;
+      }
+
+      return {
+        content: content && content !== 'none' ? content : undefined,
+        styles: getStyleMap(style),
+      };
+    }
+
+    function extractElementTree(element: Element): ElementTreeNode | undefined {
+      const computedStyle = window.getComputedStyle(element);
+      if (isHidden(computedStyle)) return undefined;
+
+      const before = extractPseudoElement(element, '::before');
+      const after = extractPseudoElement(element, '::after');
+      const pseudo = before || after ? { before, after } : undefined;
+
+      return {
+        tagName: element.tagName.toLowerCase(),
+        selector: getSelectorPath(element),
+        rect: rectToSnapshot(element.getBoundingClientRect()),
+        attributes: getRelevantAttributes(element),
+        text: getDirectText(element),
+        styles: getStyleMap(computedStyle),
+        pseudo,
+        children: Array.from(element.children)
+          .map(extractElementTree)
+          .filter((child): child is ElementTreeNode => child != null),
+      };
+    }
+
+    function extractElementData(element: Element) {
+      const rect = element.getBoundingClientRect();
+      const computedStyle = window.getComputedStyle(element);
+
       return {
         selector: getSelectorPath(element),
-        rect: {
-          x: rect.x,
-          y: rect.y,
-          width: rect.width,
-          height: rect.height,
-          top: rect.top,
-          left: rect.left,
-        },
+        rect: rectToSnapshot(rect),
         devicePixelRatio: window.devicePixelRatio,
-        styles,
+        viewport: {
+          width: window.innerWidth,
+          height: window.innerHeight,
+          scrollX: window.scrollX,
+          scrollY: window.scrollY,
+        },
+        styles: getStyleMap(computedStyle),
         html: element.outerHTML,
+        tree: extractElementTree(element),
       };
     }
 

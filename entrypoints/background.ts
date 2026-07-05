@@ -1,4 +1,5 @@
-import { models } from "@/components/chat/models";
+import { loadSettings } from "@/components/chat/settings/storage";
+import { createModelsFromConfigs } from "@/components/chat/settings/models";
 
 export default defineBackground(() => {
   // 禁用全局默认面板，避免未点击的标签页也显示
@@ -39,6 +40,9 @@ export default defineBackground(() => {
       const { model, messages, systemPrompt } = msg;
 
       try {
+        const settings = await loadSettings();
+        const models = createModelsFromConfigs(settings.models);
+
         const eventStream = models.stream(
           model,
           { systemPrompt, messages },
