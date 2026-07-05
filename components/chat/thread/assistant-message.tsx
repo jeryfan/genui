@@ -1,6 +1,6 @@
 "use client";
 
-import { MarkdownText } from "@/components/assistant-ui/markdown-text";
+import { PreviewableMarkdownText } from "@/components/assistant-ui/markdown-text-with-preview";
 import { DotMatrix } from "@/components/assistant-ui/dot-matrix";
 import { MessageTiming } from "@/components/assistant-ui/message-timing";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
@@ -190,7 +190,7 @@ export const AssistantMessage: FC = () => {
                 );
               }
               case "text":
-                return <MarkdownText />;
+                return <PreviewableMarkdownText />;
               case "reasoning":
                 return <Reasoning {...part} />;
               case "tool-call":
