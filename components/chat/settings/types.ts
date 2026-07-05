@@ -201,7 +201,7 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
 export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
   defaultFormat: "html",
   pickerMode: "single",
-  captureParts: ["screenshot", "tree"],
+  captureParts: ["screenshot", "html"],
 };
 
 export const DEFAULT_SETTINGS: Settings = {
