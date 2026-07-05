@@ -10,6 +10,7 @@ import {
   type ThreadMessage,
 } from "@assistant-ui/react";
 import type { Message } from "@jeryfan/ai";
+import type { AssistantMessageEvent } from "@jeryfan/ai";
 import {
   Component,
   useEffect,
@@ -185,7 +186,7 @@ function createAiAdapter(
         }) as Message[];
 
       const { port, next } = createBackgroundStream<
-        | { type: "event"; event: any }
+        | { type: "event"; event: AssistantMessageEvent }
         | { type: "done" }
         | { type: "error"; error: string }
       >();
@@ -226,8 +227,30 @@ function createAiAdapter(
                 break;
               case "text_end":
                 break;
-              case "done":
+              case "done": {
+                const textPart = { type: "text" as const, text: fullText };
+                if (event.reason === "length") {
+                  yield {
+                    content: [textPart],
+                    status: {
+                      type: "incomplete",
+                      reason: "length",
+                      error: "输出已截断，可能因 token 限制未完整生成",
+                    },
+                  };
+                } else if (event.reason === "toolUse") {
+                  yield {
+                    content: [textPart],
+                    status: { type: "requires-action", reason: "tool-calls" },
+                  };
+                } else {
+                  yield {
+                    content: [textPart],
+                    status: { type: "complete", reason: "stop" },
+                  };
+                }
                 return;
+              }
               case "error":
                 throw new Error(
                   event.error.errorMessage ?? "AI request failed",

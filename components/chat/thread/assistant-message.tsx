@@ -37,6 +37,25 @@ import {
 import { type FC } from "react";
 import { BranchPicker } from "../branch-picker";
 
+const MessageStatusIndicator: FC = () => {
+  const status = useAuiState((s) => s.message.status);
+  if (!status || status.type !== "incomplete") return null;
+
+  const reasonText: Record<string, string> = {
+    length: "输出已截断，可能因 token 限制未完整生成。",
+    error: "生成出错，未完整输出。",
+    cancelled: "生成已取消。",
+    "content-filter": "内容被安全过滤，未完整输出。",
+    other: "生成未完成。",
+  };
+
+  return (
+    <div className="border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200 mt-2 rounded-md border p-3 text-sm">
+      {reasonText[status.reason] ?? reasonText.other}
+    </div>
+  );
+};
+
 const MessageError: FC = () => {
   return (
     <MessagePrimitive.Error>
@@ -186,6 +205,7 @@ export const AssistantMessage: FC = () => {
           }}
         </MessagePrimitive.GroupedParts>
         <MessageError />
+        <MessageStatusIndicator />
       </div>
 
       <div
