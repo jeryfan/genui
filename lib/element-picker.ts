@@ -117,7 +117,16 @@ function formatElementTreeNode(node: ElementTreeNode, depth = 0): string {
     .join("\n\n");
 }
 
-export function createMarkdownFile(data: ElementSnapshot): File {
+export type CreateMarkdownFileOptions = {
+  includeHtml?: boolean;
+  includeTree?: boolean;
+};
+
+export function createMarkdownFile(
+  data: ElementSnapshot,
+  options: CreateMarkdownFileOptions = {},
+): File {
+  const { includeHtml = true, includeTree = true } = options;
   const kind = data.kind ?? "element";
   const screenshotScope =
     kind === "page"
@@ -125,11 +134,15 @@ export function createMarkdownFile(data: ElementSnapshot): File {
       : kind === "viewport"
         ? "Current screenshot attachment is the visible viewport."
         : "Current screenshot attachment is cropped from the visible viewport, so off-screen portions of the selected element may not appear in the image.";
-  const treeContent = data.tree
+  const treeContent = includeTree && data.tree
     ? `\n## Element Tree\n\n${formatElementTreeNode(data.tree)}\n`
     : "";
   const viewportContent = data.viewport
     ? `\n## Viewport\n| Key | Value |\n| --- | --- |\n| width | ${data.viewport.width} |\n| height | ${data.viewport.height} |\n| scrollX | ${data.viewport.scrollX} |\n| scrollY | ${data.viewport.scrollY} |\n`
+    : "";
+
+  const htmlContent = includeHtml
+    ? `\n## HTML\n\`\`\`html\n${data.html}\n\`\`\`\n`
     : "";
 
   const content = `# Element Snapshot
@@ -157,12 +170,7 @@ ${viewportContent}
 \`\`\`css
 ${formatStyles(data.styles)}
 \`\`\`
-${treeContent}
-## HTML
-\`\`\`html
-${data.html}
-\`\`\`
-`;
+${treeContent}${htmlContent}`;
 
   return new File([content], `${kind}-${Date.now()}.md`, {
     type: "text/markdown",

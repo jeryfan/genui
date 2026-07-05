@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useComposerRuntime } from "@assistant-ui/react";
 import {
   createMarkdownFile,
@@ -10,11 +10,27 @@ import {
   type ElementSnapshot,
 } from "@/lib/element-picker";
 
-export function useElementSelection(mode: "continuous" | "single" = "continuous") {
+import type { CapturePart } from "@/components/chat/settings/types";
+
+const DEFAULT_CAPTURE_PARTS: CapturePart[] = ["screenshot", "html", "tree"];
+
+export function useElementSelection(
+  mode: "continuous" | "single" = "continuous",
+  captureParts: CapturePart[] = DEFAULT_CAPTURE_PARTS,
+) {
   const runtime = useComposerRuntime();
   const [isSelecting, setIsSelecting] = useState(false);
   const selectionTabIdRef = useRef<number | null>(null);
   const selectionPortRef = useRef<ReturnType<typeof browser.tabs.connect> | null>(null);
+
+  const includeScreenshot = captureParts.includes("screenshot");
+  const markdownOptions = useMemo(
+    () => ({
+      includeHtml: captureParts.includes("html"),
+      includeTree: captureParts.includes("tree"),
+    }),
+    [captureParts],
+  );
 
   const closeSelectionPort = useCallback(() => {
     const port = selectionPortRef.current;
@@ -117,20 +133,21 @@ export function useElementSelection(mode: "continuous" | "single" = "continuous"
       })) as ElementSnapshot | undefined;
       if (!data) return;
 
-      const screenshotDataUrl = await browser.tabs.captureVisibleTab(
-        tab.windowId,
-        { format: "png" },
-      );
-
-      const mdFile = createMarkdownFile(data);
-      const screenshotFile = createScreenshotFile(screenshotDataUrl);
-
+      const mdFile = createMarkdownFile(data, markdownOptions);
       await runtime.addAttachment(mdFile);
-      await runtime.addAttachment(screenshotFile);
+
+      if (includeScreenshot) {
+        const screenshotDataUrl = await browser.tabs.captureVisibleTab(
+          tab.windowId,
+          { format: "png" },
+        );
+        const screenshotFile = createScreenshotFile(screenshotDataUrl);
+        await runtime.addAttachment(screenshotFile);
+      }
     } catch (error) {
       console.error("[useElementSelection] page capture failed:", error);
     }
-  }, [getActiveTabWithContentScript, runtime, stopSelectionInTab]);
+  }, [getActiveTabWithContentScript, includeScreenshot, markdownOptions, runtime, stopSelectionInTab]);
 
   const handleElementSelected = useCallback(
     async (data: ElementSnapshot) => {
@@ -142,25 +159,26 @@ export function useElementSelection(mode: "continuous" | "single" = "continuous"
         });
         if (!tab?.windowId) return;
 
-        const screenshotDataUrl = await browser.tabs.captureVisibleTab(
-          tab.windowId,
-          { format: "png" },
-        );
-        const screenshotFile =
-          data.kind === "page" || data.kind === "viewport"
-            ? createScreenshotFile(screenshotDataUrl)
-            : createScreenshotFile(
-                await cropScreenshot(
-                  screenshotDataUrl,
-                  data.rect,
-                  data.devicePixelRatio,
-                ),
-              );
-
-        const mdFile = createMarkdownFile(data);
-
+        const mdFile = createMarkdownFile(data, markdownOptions);
         await runtime.addAttachment(mdFile);
-        await runtime.addAttachment(screenshotFile);
+
+        if (includeScreenshot) {
+          const screenshotDataUrl = await browser.tabs.captureVisibleTab(
+            tab.windowId,
+            { format: "png" },
+          );
+          const screenshotFile =
+            data.kind === "page" || data.kind === "viewport"
+              ? createScreenshotFile(screenshotDataUrl)
+              : createScreenshotFile(
+                  await cropScreenshot(
+                    screenshotDataUrl,
+                    data.rect,
+                    data.devicePixelRatio,
+                  ),
+                );
+          await runtime.addAttachment(screenshotFile);
+        }
 
         if (mode === "single") {
           setIsSelecting(false);
@@ -171,7 +189,7 @@ export function useElementSelection(mode: "continuous" | "single" = "continuous"
         console.error("[useElementSelection] failed:", error);
       }
     },
-    [runtime, mode],
+    [includeScreenshot, markdownOptions, runtime, mode],
   );
 
   useEffect(() => {

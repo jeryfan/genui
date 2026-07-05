@@ -52,4 +52,13 @@ assert.match(markdown, /font-size: 24px;/);
 assert.match(markdown, /div\.card > button/);
 assert.match(markdown, /border-radius: 999px;/);
 
+const compactFile = createMarkdownFile(snapshot as any, {
+  includeHtml: false,
+  includeTree: false,
+});
+const compactMarkdown = await compactFile.text();
+
+assert.doesNotMatch(compactMarkdown, /## Element Tree/);
+assert.doesNotMatch(compactMarkdown, /## HTML/);
+
 console.log("element picker tests passed");

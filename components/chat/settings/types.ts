@@ -2,6 +2,7 @@ import type { Api, Model, ProviderId } from "@jeryfan/ai";
 
 export type OutputFormat = "html" | "react" | "vue";
 export type PickerMode = "continuous" | "single";
+export type CapturePart = "screenshot" | "html" | "tree";
 
 export interface ModelConfig extends Model<Api> {
   apiKey: string;
@@ -10,6 +11,7 @@ export interface ModelConfig extends Model<Api> {
 export interface GeneralSettings {
   defaultFormat: OutputFormat;
   pickerMode: PickerMode;
+  captureParts: CapturePart[];
 }
 
 export interface Settings {
@@ -182,7 +184,8 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
 
 export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
   defaultFormat: "html",
-  pickerMode: "continuous",
+  pickerMode: "single",
+  captureParts: ["screenshot", "tree"],
 };
 
 export const DEFAULT_SETTINGS: Settings = {
