@@ -1,8 +1,9 @@
+import { filterComputedStylesByDefault } from '@/lib/element-picker';
 import type {
   ElementRect,
   ElementTreeNode,
   PseudoElementSnapshot,
-} from "@/lib/element-picker";
+} from '@/lib/element-picker';
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -15,6 +16,8 @@ export default defineContentScript({
     let isViewportSelection = false;
     let overlay: HTMLElement | null = null;
     let lastHoveredElement: Element | null = null;
+
+    const defaultStyleCache = new Map<string, Record<string, string>>();
 
     function createOverlay() {
       if (overlay) return;
@@ -113,18 +116,67 @@ export default defineContentScript({
       };
     }
 
-    function getStyleMap(style: CSSStyleDeclaration): Record<string, string> {
+    function getOrCreateStyleSandbox(): HTMLElement {
+      let sandbox = document.getElementById('genui-style-sandbox');
+      if (sandbox) return sandbox;
+
+      sandbox = document.createElement('div');
+      sandbox.id = 'genui-style-sandbox';
+      sandbox.style.cssText = `
+        position: fixed !important;
+        left: 0 !important;
+        top: 0 !important;
+        width: 100px !important;
+        height: 100px !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+        z-index: -2147483647 !important;
+      `;
+      (document.body ?? document.documentElement).appendChild(sandbox);
+      return sandbox;
+    }
+
+    function getDefaultStyleMap(
+      tagName: string,
+      pseudoElement?: string,
+    ): Record<string, string> {
+      const key = pseudoElement
+        ? `${tagName.toLowerCase()}::${pseudoElement}`
+        : tagName.toLowerCase();
+      if (defaultStyleCache.has(key)) return defaultStyleCache.get(key)!;
+
+      const sandbox = getOrCreateStyleSandbox();
+      const element = document.createElement(tagName);
+      sandbox.appendChild(element);
+
+      const style = window.getComputedStyle(element, pseudoElement);
+      const defaults: Record<string, string> = {};
+      for (let i = 0; i < style.length; i++) {
+        const prop = style[i];
+        const value = style.getPropertyValue(prop);
+        if (value) defaults[prop] = value;
+      }
+
+      sandbox.removeChild(element);
+      defaultStyleCache.set(key, defaults);
+      return defaults;
+    }
+
+    function getStyleMap(
+      style: CSSStyleDeclaration,
+      tagName: string,
+      pseudoElement?: string,
+    ): Record<string, string> {
       const styles: Record<string, string> = {};
 
       for (let i = 0; i < style.length; i++) {
         const prop = style[i];
         const value = style.getPropertyValue(prop);
-        if (value && value !== 'initial' && value !== 'none') {
-          styles[prop] = value;
-        }
+        if (value) styles[prop] = value;
       }
 
-      return styles;
+      const defaults = getDefaultStyleMap(tagName, pseudoElement);
+      return filterComputedStylesByDefault(styles, defaults);
     }
 
     function getRelevantAttributes(element: Element): Record<string, string> {
@@ -176,6 +228,70 @@ export default defineContentScript({
       );
     }
 
+    function resolveUrl(url: string): string {
+      if (!url) return url;
+      const trimmed = url.trim();
+      if (
+        trimmed.startsWith('data:') ||
+        trimmed.startsWith('http://') ||
+        trimmed.startsWith('https://') ||
+        trimmed.startsWith('//') ||
+        trimmed.startsWith('#')
+      ) {
+        return trimmed;
+      }
+      try {
+        return new URL(trimmed, document.baseURI).href;
+      } catch {
+        return trimmed;
+      }
+    }
+
+    function resolveHtmlUrls(html: string): string {
+      return html
+        .replace(
+          /\b(src|href|poster|data-src|data-original)=(["'])([^"']*)\2/gi,
+          (match, attr, quote, value) => {
+            return `${attr}=${quote}${resolveUrl(value)}${quote}`;
+          },
+        )
+        .replace(
+          /\bsrcset=(["'])([^"']*)\1/gi,
+          (match, quote, value) => {
+            const parts = value.split(',').map((part: string) => {
+              const trimmed = part.trim();
+              const spaceIdx = trimmed.search(/\s+/);
+              if (spaceIdx === -1) return resolveUrl(trimmed);
+              const url = trimmed.slice(0, spaceIdx);
+              const descriptor = trimmed.slice(spaceIdx + 1);
+              return `${resolveUrl(url)} ${descriptor}`;
+            });
+            return `srcset=${quote}${parts.join(', ')}${quote}`;
+          },
+        )
+        .replace(
+          /style=(["'])([^"']*)\1/gi,
+          (match, quote, value) => {
+            const resolved = value.replace(
+              /url\((['"]?)([^'"\)]+)\1\)/gi,
+              (_: string, q: string, url: string) => {
+                return `url(${q}${resolveUrl(url)}${q})`;
+              },
+            );
+            return `style=${quote}${resolved}${quote}`;
+          },
+        );
+    }
+
+    function resolveBackgroundImageUrls(value: string): string {
+      return value.replace(
+        /url\((['"]?)([^'"\)]+)\1\)/gi,
+        (match, quote, url) => {
+          return `url(${quote}${resolveUrl(url)}${quote})`;
+        },
+      );
+    }
+
     function extractPseudoElement(
       element: Element,
       pseudoElement: '::before' | '::after',
@@ -185,17 +301,30 @@ export default defineContentScript({
 
       if (
         isHidden(style) ||
-        (!content || content === 'none') &&
+        ((!content || content === 'none') &&
           style.getPropertyValue('background-image') === 'none' &&
-          style.getPropertyValue('background-color') === 'rgba(0, 0, 0, 0)'
+          style.getPropertyValue('background-color') === 'rgba(0, 0, 0, 0)')
       ) {
         return undefined;
       }
 
+      const styles = getStyleMap(style, element.tagName, pseudoElement);
       return {
         content: content && content !== 'none' ? content : undefined,
-        styles: getStyleMap(style),
+        styles: applyStyleUrlResolution(styles),
       };
+    }
+
+    function applyStyleUrlResolution(
+      styles: Record<string, string>,
+    ): Record<string, string> {
+      const resolved: Record<string, string> = {};
+      for (const [prop, value] of Object.entries(styles)) {
+        resolved[prop] = prop === 'background-image' || prop === 'mask-image'
+          ? resolveBackgroundImageUrls(value)
+          : value;
+      }
+      return resolved;
     }
 
     function intersectsViewport(rect: DOMRect): boolean {
@@ -244,7 +373,7 @@ export default defineContentScript({
         rect: rectToSnapshot(rect),
         attributes: getRelevantAttributes(element),
         text: getDirectText(element),
-        styles: getStyleMap(computedStyle),
+        styles: applyStyleUrlResolution(getStyleMap(computedStyle, element.tagName)),
         pseudo,
         children,
       };
@@ -255,7 +384,7 @@ export default defineContentScript({
       const computedStyle = window.getComputedStyle(element);
 
       return {
-        kind: 'element',
+        kind: 'element' as const,
         selector: getSelectorPath(element),
         rect: rectToSnapshot(rect),
         devicePixelRatio: window.devicePixelRatio,
@@ -265,8 +394,8 @@ export default defineContentScript({
           scrollX: window.scrollX,
           scrollY: window.scrollY,
         },
-        styles: getStyleMap(computedStyle),
-        html: element.outerHTML,
+        styles: applyStyleUrlResolution(getStyleMap(computedStyle, element.tagName)),
+        html: resolveHtmlUrls(element.outerHTML),
         tree: extractElementTree(element),
       };
     }
@@ -308,7 +437,7 @@ export default defineContentScript({
       };
 
       return {
-        kind: 'viewport',
+        kind: 'viewport' as const,
         selector: 'viewport',
         rect: viewportRect,
         devicePixelRatio: window.devicePixelRatio,
@@ -318,8 +447,8 @@ export default defineContentScript({
           scrollX: window.scrollX,
           scrollY: window.scrollY,
         },
-        styles: getStyleMap(computedStyle),
-        html: root.outerHTML,
+        styles: applyStyleUrlResolution(getStyleMap(computedStyle, root.tagName)),
+        html: resolveHtmlUrls(root.outerHTML),
         tree: extractElementTree(root, {
           viewportOnly: true,
           isRoot: true,
@@ -332,7 +461,7 @@ export default defineContentScript({
       const computedStyle = window.getComputedStyle(root);
 
       return {
-        kind: 'page',
+        kind: 'page' as const,
         selector: 'document.body',
         rect: getDocumentRect(),
         devicePixelRatio: window.devicePixelRatio,
@@ -342,8 +471,8 @@ export default defineContentScript({
           scrollX: window.scrollX,
           scrollY: window.scrollY,
         },
-        styles: getStyleMap(computedStyle),
-        html: root.outerHTML,
+        styles: applyStyleUrlResolution(getStyleMap(computedStyle, root.tagName)),
+        html: resolveHtmlUrls(root.outerHTML),
         tree: extractElementTree(root),
       };
     }
@@ -360,7 +489,12 @@ export default defineContentScript({
       console.log('[genui] mousemove, isSelecting:', isSelecting);
       const target = document.elementFromPoint(e.clientX, e.clientY);
       if (!target || target === overlay || overlay?.contains(target)) {
-        console.log('[genui] mousemove ignored target:', target, 'overlay:', overlay);
+        console.log(
+          '[genui] mousemove ignored target:',
+          target,
+          'overlay:',
+          overlay,
+        );
         return;
       }
       lastHoveredElement = target;

@@ -55,6 +55,28 @@ export type ElementPickerMessage =
   | ElementSelectedMessage
   | ElementSelectionCancelledMessage;
 
+/**
+ * Filter out computed styles that are identical to the default computed styles
+ * for the same element tag. This removes browser defaults and inherited values
+ * that do not affect the element's visual appearance, while preserving every
+ * style that actually matters for 1:1 replication.
+ */
+export function filterComputedStylesByDefault(
+  styles: Record<string, string>,
+  defaults: Record<string, string>,
+): Record<string, string> {
+  const filtered: Record<string, string> = {};
+
+  for (const [prop, value] of Object.entries(styles)) {
+    if (!value || value === "initial" || value === "unset") continue;
+    if (value !== defaults[prop]) {
+      filtered[prop] = value;
+    }
+  }
+
+  return filtered;
+}
+
 function formatStyles(styles: Record<string, string>): string {
   return Object.entries(styles)
     .map(([prop, value]) => `${prop}: ${value};`)
@@ -146,6 +168,8 @@ export function createMarkdownFile(
     : "";
 
   const content = `# Element Snapshot
+
+注意：HTML 和 CSS 中提供的图片、SVG、背景图 URL 已解析为绝对地址，请直接使用这些 URL，不要将其重写为内联 SVG 或占位元素。
 
 ## Snapshot Type
 ${kind}

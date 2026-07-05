@@ -10,9 +10,12 @@ import {
   type ElementSnapshot,
 } from "@/lib/element-picker";
 
-import type { CapturePart } from "@/components/chat/settings/types";
+import {
+  DEFAULT_GENERAL_SETTINGS,
+  type CapturePart,
+} from "@/components/chat/settings/types";
 
-const DEFAULT_CAPTURE_PARTS: CapturePart[] = ["screenshot", "html", "tree"];
+const DEFAULT_CAPTURE_PARTS: CapturePart[] = DEFAULT_GENERAL_SETTINGS.captureParts;
 
 export function useElementSelection(
   mode: "continuous" | "single" = "continuous",
