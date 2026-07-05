@@ -2,6 +2,8 @@
 
 import { type PropsWithChildren, useEffect, useState, type FC } from "react";
 import {
+  CheckIcon,
+  CopyIcon,
   XIcon,
   PlusIcon,
   FileText,
@@ -66,6 +68,92 @@ const useAttachmentSrc = () => {
   return useFileSrc(file) ?? src;
 };
 
+function isMarkdownAttachment(input: {
+  name?: string;
+  contentType?: string;
+  fileType?: string;
+}) {
+  const name = input.name?.toLowerCase() ?? "";
+  const contentType = input.contentType?.toLowerCase() ?? "";
+  const fileType = input.fileType?.toLowerCase() ?? "";
+
+  return (
+    name.endsWith(".md") ||
+    name.endsWith(".markdown") ||
+    contentType.includes("markdown") ||
+    fileType.includes("markdown")
+  );
+}
+
+function unwrapAttachmentText(text: string) {
+  const start = text.indexOf("\n");
+  const end = text.lastIndexOf("\n</attachment>");
+
+  if (text.startsWith("<attachment ") && start !== -1 && end !== -1) {
+    return text.slice(start + 1, end);
+  }
+
+  return text;
+}
+
+const useAttachmentMarkdownPreview = () => {
+  const { file, contentText, contentType, fileType, name } = useAuiState(
+    useShallow(
+      (s): {
+        file?: File;
+        contentText?: string;
+        contentType?: string;
+        fileType?: string;
+        name: string;
+      } => {
+        const text = s.attachment.content
+          ?.filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("\n");
+
+        return {
+          file: s.attachment.file,
+          contentText: text ? unwrapAttachmentText(text) : undefined,
+          contentType: s.attachment.contentType,
+          fileType: s.attachment.file?.type,
+          name: s.attachment.name,
+        };
+      },
+    ),
+  );
+  const [fileText, setFileText] = useState<string | undefined>(undefined);
+  const isMarkdown = isMarkdownAttachment({ name, contentType, fileType });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!file || !isMarkdown) {
+      setFileText(undefined);
+      return;
+    }
+
+    file.text().then(
+      (text) => {
+        if (!cancelled) setFileText(text);
+      },
+      () => {
+        if (!cancelled) setFileText(undefined);
+      },
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [file, isMarkdown]);
+
+  if (!isMarkdown) return undefined;
+
+  return {
+    name,
+    text: contentText ?? fileText,
+  };
+};
+
 type AttachmentPreviewProps = {
   src: string;
 };
@@ -89,8 +177,21 @@ const AttachmentPreview: FC<AttachmentPreviewProps> = ({ src }) => {
 
 const AttachmentPreviewDialog: FC<PropsWithChildren> = ({ children }) => {
   const src = useAttachmentSrc();
+  const markdown = useAttachmentMarkdownPreview();
+  const [isCopied, setIsCopied] = useState(false);
 
-  if (!src) return children;
+  if (!src && !markdown) return children;
+
+  const copyMarkdown = () => {
+    if (!markdown?.text || isCopied) return;
+    navigator.clipboard.writeText(markdown.text).then(
+      () => {
+        setIsCopied(true);
+        window.setTimeout(() => setIsCopied(false), 2000);
+      },
+      () => {},
+    );
+  };
 
   return (
     <Dialog>
@@ -99,13 +200,42 @@ const AttachmentPreviewDialog: FC<PropsWithChildren> = ({ children }) => {
       >
         {children}
       </DialogTrigger>
-      <DialogContent className="aui-attachment-preview-dialog-content [&>button]:bg-foreground/60 [&_svg]:text-background [&>button]:hover:[&_svg]:text-destructive p-2 sm:max-w-3xl [&>button]:rounded-full [&>button]:p-1 [&>button]:opacity-100 [&>button]:ring-0!">
-        <DialogTitle className="aui-sr-only sr-only">
-          Image Attachment Preview
+      <DialogContent className={cn(
+        "aui-attachment-preview-dialog-content p-2",
+        src
+          ? "[&>button]:bg-foreground/60 [&_svg]:text-background [&>button]:hover:[&_svg]:text-destructive sm:max-w-3xl [&>button]:rounded-full [&>button]:p-1 [&>button]:opacity-100 [&>button]:ring-0!"
+          : "sm:max-w-4xl",
+      )}>
+        <DialogTitle className={cn(src && "aui-sr-only sr-only")}>
+          {src ? "Image Attachment Preview" : markdown?.name}
         </DialogTitle>
-        <div className="aui-attachment-preview bg-background relative mx-auto flex max-h-[80dvh] w-full items-center justify-center overflow-hidden">
-          <AttachmentPreview src={src} />
-        </div>
+        {src ? (
+          <div className="aui-attachment-preview bg-background relative mx-auto flex max-h-[80dvh] w-full items-center justify-center overflow-hidden">
+            <AttachmentPreview src={src} />
+          </div>
+        ) : (
+          <div className="grid gap-2">
+            <div className="flex items-center justify-end pr-8">
+              <TooltipIconButton
+                tooltip={isCopied ? "Copied" : "Copy file content"}
+                variant="ghost"
+                size="icon-sm"
+                className="size-7"
+                onClick={copyMarkdown}
+                disabled={!markdown?.text}
+              >
+                {isCopied ? (
+                  <CheckIcon className="size-4" />
+                ) : (
+                  <CopyIcon className="size-4" />
+                )}
+              </TooltipIconButton>
+            </div>
+            <pre className="bg-muted/40 max-h-[75dvh] overflow-auto rounded-lg border p-4 text-xs leading-relaxed whitespace-pre-wrap">
+              <code>{markdown?.text ?? "Loading..."}</code>
+            </pre>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
