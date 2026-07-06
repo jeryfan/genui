@@ -1,6 +1,14 @@
 import { type Settings, type Mention, DEFAULT_SETTINGS } from "./types";
 
-const STORAGE_KEY = "genui-settings";
+export const STORAGE_KEY = "genui-settings";
+
+type StorageAreaName = "local" | "sync" | "managed" | "session" | string;
+type StorageChange = {
+  oldValue?: unknown;
+  newValue?: unknown;
+};
+
+type SettingsChangeListener = (settings: Settings) => void;
 
 function migrateMentions(mentions?: Partial<Settings>["mentions"]): Settings["mentions"] {
   if (!Array.isArray(mentions)) return DEFAULT_SETTINGS.mentions;
@@ -26,9 +34,7 @@ function migrateMentions(mentions?: Partial<Settings>["mentions"]): Settings["me
   });
 }
 
-export async function loadSettings(): Promise<Settings> {
-  const result = await browser.storage.local.get(STORAGE_KEY);
-  const stored = result[STORAGE_KEY] as Partial<Settings> | undefined;
+export function normalizeSettings(stored?: Partial<Settings>): Settings {
   if (!stored) return DEFAULT_SETTINGS;
 
   // 合并默认值，防止新增字段缺失
@@ -43,6 +49,36 @@ export async function loadSettings(): Promise<Settings> {
   };
 }
 
+export function extractSettingsFromStorageChange(
+  changes: Record<string, StorageChange>,
+  areaName: StorageAreaName,
+): Settings | null {
+  if (areaName !== "local") return null;
+  const change = changes[STORAGE_KEY];
+  if (!change?.newValue) return null;
+  return normalizeSettings(change.newValue as Partial<Settings>);
+}
+
+export async function loadSettings(): Promise<Settings> {
+  const result = await browser.storage.local.get(STORAGE_KEY);
+  return normalizeSettings(result[STORAGE_KEY] as Partial<Settings> | undefined);
+}
+
 export async function saveSettings(settings: Settings): Promise<void> {
   await browser.storage.local.set({ [STORAGE_KEY]: settings });
+}
+
+export function subscribeSettings(listener: SettingsChangeListener): () => void {
+  const handleStorageChange = (
+    changes: Record<string, StorageChange>,
+    areaName: StorageAreaName,
+  ) => {
+    const next = extractSettingsFromStorageChange(changes, areaName);
+    if (next) listener(next);
+  };
+
+  browser.storage.onChanged.addListener(handleStorageChange);
+  return () => {
+    browser.storage.onChanged.removeListener(handleStorageChange);
+  };
 }

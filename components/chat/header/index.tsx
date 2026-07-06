@@ -3,6 +3,7 @@
 import { type FC } from "react";
 import { ExportButton } from "./export-button";
 import { SettingsButton } from "./settings-button";
+import { SyncSettingsButton } from "./sync-settings-button";
 import { ThreadTitle } from "./thread-title";
 
 export const Header: FC = () => {
@@ -11,6 +12,7 @@ export const Header: FC = () => {
       <ThreadTitle />
       <div className="ml-auto flex items-center gap-1">
         <ExportButton />
+        <SyncSettingsButton />
         <SettingsButton />
       </div>
     </header>
