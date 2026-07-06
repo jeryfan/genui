@@ -23,7 +23,7 @@ import {
   getProviderOptionsForApi,
 } from "../catalog";
 import { useSettings } from "../context";
-import { type ModelConfig } from "../types";
+import { type ModelConfig, type ModelThinkingLevel } from "../types";
 
 const isChecked = (arr: string[] | undefined, value: string) =>
   arr?.includes(value) ?? false;
@@ -45,7 +45,12 @@ interface SelectFieldProps {
   onChange: (value: string) => void;
 }
 
-const SelectField: FC<SelectFieldProps> = ({ label, value, options, onChange }) => {
+const SelectField: FC<SelectFieldProps> = ({
+  label,
+  value,
+  options,
+  onChange,
+}) => {
   return (
     <div className="grid gap-2">
       <label className="text-sm font-medium">{label}</label>
@@ -76,6 +81,15 @@ function withCurrentOption(
   return [{ value, label }, ...options];
 }
 
+const THINKING_LEVEL_OPTIONS: { value: ModelThinkingLevel; label: string }[] = [
+  { value: "off", label: "Off" },
+  { value: "minimal", label: "Minimal" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+  { value: "xhigh", label: "Extra High" },
+];
+
 export const ModelsSection: FC = () => {
   const { settings, updateSettings } = useSettings();
   const [selectedIndex, setSelectedIndex] = useState<number | null>(0);
@@ -94,7 +108,7 @@ export const ModelsSection: FC = () => {
   const selectedModel =
     normalizedSelectedIndex == null
       ? null
-      : settings.models[normalizedSelectedIndex] ?? null;
+      : (settings.models[normalizedSelectedIndex] ?? null);
 
   const providerOptions = selectedModel
     ? withCurrentOption(
@@ -105,7 +119,10 @@ export const ModelsSection: FC = () => {
     : [];
   const modelOptions = selectedModel
     ? withCurrentOption(
-        getModelOptionsForProviderApi(selectedModel.provider, selectedModel.api),
+        getModelOptionsForProviderApi(
+          selectedModel.provider,
+          selectedModel.api,
+        ),
         selectedModel.id,
         `${selectedModel.name || selectedModel.id} (${selectedModel.id})`,
       )
@@ -151,7 +168,9 @@ export const ModelsSection: FC = () => {
 
   const handleApiChange = (index: number, model: ModelConfig, api: Api) => {
     const providerOptions = getProviderOptionsForApi(api);
-    const provider = providerOptions.some((option) => option.value === model.provider)
+    const provider = providerOptions.some(
+      (option) => option.value === model.provider,
+    )
       ? model.provider
       : providerOptions[0]?.value;
 
@@ -253,7 +272,9 @@ export const ModelsSection: FC = () => {
                 normalizedSelectedIndex === index && "bg-accent",
               )}
             >
-              <div className="truncate font-medium">{model.name || model.id}</div>
+              <div className="truncate font-medium">
+                {model.name || model.id}
+              </div>
               <div className="text-muted-foreground truncate text-xs">
                 {model.id} · {model.provider}
               </div>
@@ -301,7 +322,11 @@ export const ModelsSection: FC = () => {
                   value={selectedModel.id}
                   options={modelOptions}
                   onChange={(value) =>
-                    handleModelChange(normalizedSelectedIndex, selectedModel, value)
+                    handleModelChange(
+                      normalizedSelectedIndex,
+                      selectedModel,
+                      value,
+                    )
                   }
                 />
 
@@ -350,7 +375,9 @@ export const ModelsSection: FC = () => {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
-                    <label className="text-sm font-medium">Context Window</label>
+                    <label className="text-sm font-medium">
+                      Context Window
+                    </label>
                     <Input
                       type="number"
                       value={selectedModel.contextWindow}
@@ -383,6 +410,9 @@ export const ModelsSection: FC = () => {
                       onChange={(e) =>
                         updateModel(normalizedSelectedIndex, {
                           reasoning: e.target.checked,
+                          thinkingLevel: e.target.checked
+                            ? (selectedModel.thinkingLevel ?? "medium")
+                            : "off",
                         })
                       }
                       className="rounded border"
@@ -395,7 +425,10 @@ export const ModelsSection: FC = () => {
                       checked={isChecked(selectedModel.input, "text")}
                       onChange={() =>
                         updateModel(normalizedSelectedIndex, {
-                          input: toggleValue(selectedModel.input, "text") as any,
+                          input: toggleValue(
+                            selectedModel.input,
+                            "text",
+                          ) as any,
                         })
                       }
                       className="rounded border"
@@ -408,7 +441,10 @@ export const ModelsSection: FC = () => {
                       checked={isChecked(selectedModel.input, "image")}
                       onChange={() =>
                         updateModel(normalizedSelectedIndex, {
-                          input: toggleValue(selectedModel.input, "image") as any,
+                          input: toggleValue(
+                            selectedModel.input,
+                            "image",
+                          ) as any,
                         })
                       }
                       className="rounded border"
@@ -416,6 +452,19 @@ export const ModelsSection: FC = () => {
                     Image Input
                   </label>
                 </div>
+
+                {selectedModel.reasoning && (
+                  <SelectField
+                    label="Thinking Level"
+                    value={selectedModel.thinkingLevel ?? "medium"}
+                    options={THINKING_LEVEL_OPTIONS}
+                    onChange={(value) =>
+                      updateModel(normalizedSelectedIndex, {
+                        thinkingLevel: value as ModelThinkingLevel,
+                      })
+                    }
+                  />
+                )}
 
                 <div className="flex items-center gap-2">
                   <Button
@@ -453,11 +502,15 @@ export const ModelsSection: FC = () => {
           <Textarea
             value={advancedJson}
             onChange={(e) => setAdvancedJson(e.target.value)}
-            className="min-h-[420px] font-mono text-xs"
+            className="min-h-105 font-mono text-xs"
           />
           {jsonError && <p className="text-destructive text-xs">{jsonError}</p>}
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setJsonOpen(false)}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setJsonOpen(false)}
+            >
               Cancel
             </Button>
             <Button type="button" onClick={applyAdvancedJson}>

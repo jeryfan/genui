@@ -1,6 +1,34 @@
+import {
+  createModelsFromConfigs,
+  getModelConfigRuntimeKey,
+  getModelRuntimeKey,
+} from "@/components/chat/settings/models";
 import { loadSettings } from "@/components/chat/settings/storage";
-import { createModelsFromConfigs } from "@/components/chat/settings/models";
-import type { Usage } from "@jeryfan/ai";
+import type { StreamOptions, ThinkingLevel, Usage } from "@jeryfan/ai";
+import type {
+  ModelConfig,
+  ModelThinkingLevel,
+} from "@/components/chat/settings/types";
+
+type StreamOptionsWithReasoning = StreamOptions & {
+  reasoning?: ThinkingLevel;
+};
+
+const MODEL_THINKING_LEVELS = new Set<ModelThinkingLevel>([
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+]);
+
+function isModelThinkingLevel(value: unknown): value is ModelThinkingLevel {
+  return (
+    typeof value === "string" &&
+    MODEL_THINKING_LEVELS.has(value as ModelThinkingLevel)
+  );
+}
 
 export default defineBackground(() => {
   // 禁用全局默认面板，避免未点击的标签页也显示
@@ -44,10 +72,30 @@ export default defineBackground(() => {
         const settings = await loadSettings();
         const models = createModelsFromConfigs(settings.models);
 
+        const runtimeKey = getModelRuntimeKey(model);
+        const config = settings.models.find(
+          (m): m is ModelConfig =>
+            getModelConfigRuntimeKey(m) === runtimeKey,
+        );
+
+        const streamOptions: StreamOptionsWithReasoning = {
+          signal: abortController.signal,
+        };
+        const requestedThinkingLevel = isModelThinkingLevel(msg.reasoningEffort)
+          ? msg.reasoningEffort
+          : undefined;
+        const thinkingLevel =
+          requestedThinkingLevel ??
+          config?.thinkingLevel ??
+          (model.reasoning ? "medium" : "off");
+        if (model.reasoning && thinkingLevel !== "off") {
+          streamOptions.reasoning = thinkingLevel;
+        }
+
         const eventStream = models.stream(
           model,
           { systemPrompt, messages },
-          { signal: abortController.signal },
+          streamOptions,
         );
 
         let lastUsage: Usage | undefined;

@@ -1,4 +1,4 @@
-import type { Api, Model, ProviderId } from "@jeryfan/ai";
+import type { Api, Model, ProviderId, ThinkingLevel } from "@jeryfan/ai";
 
 export type OutputFormat = "html" | "react" | "vue";
 export type PickerMode = "continuous" | "single";
@@ -14,8 +14,11 @@ export interface Mention {
   metadata?: Record<string, unknown>;
 }
 
+export type ModelThinkingLevel = "off" | ThinkingLevel;
+
 export interface ModelConfig extends Model<Api> {
   apiKey: string;
+  thinkingLevel?: ModelThinkingLevel;
 }
 
 export interface GeneralSettings {
@@ -187,6 +190,7 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
     "User-Agent": "KimiCLI/1.5",
   },
   reasoning: true,
+  thinkingLevel: "medium",
   input: ["text", "image"],
   contextWindow: 262144,
   maxTokens: 32768,

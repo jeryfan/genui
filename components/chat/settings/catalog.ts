@@ -43,6 +43,7 @@ function cloneModelForConfig(model: Model<Api>, apiKey = ""): ModelConfig {
     headers: model.headers ? { ...model.headers } : undefined,
     compat: model.compat ? ({ ...model.compat } as ModelConfig["compat"]) : undefined,
     apiKey,
+    thinkingLevel: model.reasoning ? "medium" : "off",
   };
 }
 

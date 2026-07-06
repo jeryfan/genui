@@ -131,7 +131,11 @@ function createAiAdapter(
   return {
     async *run({ messages, abortSignal, context }) {
       const settings = settingsRef.current;
-      const modelId = context.config?.modelName;
+      const modelContextConfig = context.config as
+        | { modelName?: string; reasoningEffort?: string }
+        | undefined;
+      const modelId = modelContextConfig?.modelName;
+      const reasoningEffort = modelContextConfig?.reasoningEffort;
       const models = createModelsFromConfigs(settings.models);
       const model = findModelByRuntimeKey(models.getModels(), modelId);
 
@@ -217,6 +221,7 @@ function createAiAdapter(
         model,
         messages: aiMessages,
         systemPrompt,
+        reasoningEffort,
       });
 
       const onAbort = () => port.postMessage({ type: "abort" });
@@ -224,6 +229,8 @@ function createAiAdapter(
 
       try {
         let fullText = "";
+        let fullReasoning = "";
+        let hasReasoning = false;
 
         while (true) {
           const msg = await next();
@@ -240,21 +247,59 @@ function createAiAdapter(
             const event = msg.event;
             switch (event.type) {
               case "text_start":
-                yield { content: [{ type: "text" as const, text: "" }] };
+                yield {
+                  content: hasReasoning
+                    ? [
+                        { type: "reasoning" as const, text: fullReasoning },
+                        { type: "text" as const, text: "" },
+                      ]
+                    : [{ type: "text" as const, text: "" }],
+                };
                 break;
               case "text_delta":
                 fullText += event.delta;
-                yield { content: [{ type: "text" as const, text: fullText }] };
+                yield {
+                  content: hasReasoning
+                    ? [
+                        { type: "reasoning" as const, text: fullReasoning },
+                        { type: "text" as const, text: fullText },
+                      ]
+                    : [{ type: "text" as const, text: fullText }],
+                };
                 break;
               case "text_end":
                 break;
+              case "thinking_start":
+                hasReasoning = true;
+                yield {
+                  content: [{ type: "reasoning" as const, text: "" }],
+                };
+                break;
+              case "thinking_delta":
+                fullReasoning += event.delta;
+                yield {
+                  content: [
+                    { type: "reasoning" as const, text: fullReasoning },
+                  ],
+                };
+                break;
+              case "thinking_end":
+                break;
               case "done": {
-                const textPart = { type: "text" as const, text: fullText };
-                const usage = event.message?.usage;
-                const metadata = usage ? { custom: { usage } } : undefined;
+                const parts: Array<
+                  | { type: "reasoning"; text: string }
+                  | { type: "text"; text: string }
+                > = [];
+                if (hasReasoning) {
+                  parts.push({ type: "reasoning", text: fullReasoning });
+                }
+                parts.push({ type: "text", text: fullText });
+                const metadata = event.message?.usage
+                  ? { custom: { usage: event.message.usage } }
+                  : undefined;
                 if (event.reason === "length") {
                   yield {
-                    content: [textPart],
+                    content: parts,
                     status: {
                       type: "incomplete",
                       reason: "length",
@@ -264,13 +309,13 @@ function createAiAdapter(
                   };
                 } else if (event.reason === "toolUse") {
                   yield {
-                    content: [textPart],
+                    content: parts,
                     status: { type: "requires-action", reason: "tool-calls" },
                     metadata,
                   };
                 } else {
                   yield {
-                    content: [textPart],
+                    content: parts,
                     status: { type: "complete", reason: "stop" },
                     metadata,
                   };
