@@ -492,7 +492,7 @@ export const ModelsSection: FC = () => {
       </div>
 
       <Dialog open={jsonOpen} onOpenChange={setJsonOpen}>
-        <DialogContent className="sm:max-w-3xl">
+        <DialogContent className="max-h-[calc(100vh-2rem)] sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>Advanced Model JSON</DialogTitle>
             <DialogDescription>
@@ -502,7 +502,7 @@ export const ModelsSection: FC = () => {
           <Textarea
             value={advancedJson}
             onChange={(e) => setAdvancedJson(e.target.value)}
-            className="min-h-105 font-mono text-xs"
+            className="h-105 max-h-[60vh] resize-none overflow-y-auto font-mono text-xs"
           />
           {jsonError && <p className="text-destructive text-xs">{jsonError}</p>}
           <DialogFooter>
