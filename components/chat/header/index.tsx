@@ -5,10 +5,12 @@ import { ExportButton } from "./export-button";
 import { SettingsButton } from "./settings-button";
 import { SyncSettingsButton } from "./sync-settings-button";
 import { ThreadTitle } from "./thread-title";
+import { ThreadHistoryDrawer } from "../thread-history-drawer";
 
 export const Header: FC = () => {
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 px-4">
+      <ThreadHistoryDrawer />
       <ThreadTitle />
       <div className="ml-auto flex items-center gap-1">
         <ExportButton />

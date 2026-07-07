@@ -1,6 +1,6 @@
 "use client";
 
-import { useAuiState, useThreadRuntime } from "@assistant-ui/react";
+import { useAssistantRuntime, useAuiState } from "@assistant-ui/react";
 import { PlusIcon } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 import {
@@ -31,10 +31,10 @@ export function AssistantFooter(props: AssistantFooterProps = {}): ReactNode {
 }
 
 function DefaultAssistantFooter(props: AssistantFooterProps): ReactNode {
-  const threadRuntime = useThreadRuntime();
+  const runtime = useAssistantRuntime();
   const { settings } = useSettings();
   const models = useMemo(() => createModelsFromConfigs(settings.models), [settings.models]);
-  const modelName = threadRuntime.getModelContext().config?.modelName;
+  const modelName = runtime.threads.main.getModelContext().config?.modelName;
   const model = modelName
     ? findModelByRuntimeKey(models.getModels(), modelName)
     : undefined;
@@ -52,7 +52,7 @@ function AssistantFooterContent({
   onNewThread,
   contextWindow,
 }: AssistantFooterProps & { contextWindow: number }): ReactNode {
-  const threadRuntime = useThreadRuntime();
+  const runtime = useAssistantRuntime();
   const messages = useAuiState((s) => s.thread.messages);
   const lastUsage = useEstimatedTokenUsage();
 
@@ -66,7 +66,7 @@ function AssistantFooterContent({
           if (onNewThread) {
             onNewThread();
           } else {
-            threadRuntime.reset();
+            runtime.threads.switchToNewThread();
           }
         }}
         className="text-muted-foreground hover:bg-muted hover:text-foreground flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors"
