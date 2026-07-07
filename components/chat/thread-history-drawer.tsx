@@ -1,20 +1,14 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import {
   ThreadListItemPrimitive,
   ThreadListPrimitive,
   useAuiState,
 } from "@assistant-ui/react";
-import { MessageSquareIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { MenuIcon, MessageSquareIcon, Trash2Icon } from "lucide-react";
 import { type FC, useState } from "react";
 
 function formatLastMessageAt(value?: Date) {
@@ -54,39 +48,16 @@ export const ThreadHistoryDrawer: FC = () => {
           />
         }
       >
-        <span className="flex size-4 flex-col justify-center gap-0.5" aria-hidden>
-          <span className="h-0.5 w-4 rounded-full bg-current" />
-          <span className="h-0.5 w-4 rounded-full bg-current" />
-          <span className="h-0.5 w-4 rounded-full bg-current" />
-        </span>
+        <MenuIcon className="size-4" aria-hidden />
       </SheetTrigger>
 
       <SheetContent
         side="bottom"
-        className="max-h-[72vh] gap-0 rounded-t-3xl border-border/70 p-0"
+        showCloseButton={false}
+        style={{ height: "65vh" }}
+        className="gap-0 rounded-t-3xl border-border/70 p-0"
       >
-        <SheetHeader className="border-b border-border/60 px-4 py-3">
-          <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-muted-foreground/30" />
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <SheetTitle>Threads</SheetTitle>
-              <p className="text-muted-foreground text-xs">
-                {isLoading ? "Loading history..." : `${threadCount} conversations`}
-              </p>
-            </div>
-            <ThreadListPrimitive.New
-              onClick={() => setOpen(false)}
-              render={
-                <Button variant="outline" size="sm" className="rounded-full" />
-              }
-            >
-              <PlusIcon className="size-3.5" />
-              New thread
-            </ThreadListPrimitive.New>
-          </div>
-        </SheetHeader>
-
-        <ThreadListPrimitive.Root className="min-h-0 overflow-y-auto p-3">
+        <ThreadListPrimitive.Root className="min-h-0 overflow-y-auto p-3 pt-4">
           {threadCount === 0 && !isLoading ? (
             <div className="text-muted-foreground flex flex-col items-center justify-center gap-2 py-10 text-center text-sm">
               <MessageSquareIcon className="size-5" />
