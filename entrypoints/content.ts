@@ -64,21 +64,24 @@ export default defineContentScript({
       overlay.style.borderRadius = '0px';
     }
 
-    function restoreOverlayAfterCapture() {
-      window.setTimeout(() => {
-        if (!overlay || !isSelecting) return;
-        if (isViewportSelection) {
-          updateViewportOverlay();
-        } else if (lastHoveredElement) {
-          updateOverlay(lastHoveredElement);
-        }
-      }, 800);
+    function restoreOverlayForSelection() {
+      if (!overlay || !isSelecting) return;
+      if (isViewportSelection) {
+        updateViewportOverlay();
+      } else if (lastHoveredElement) {
+        updateOverlay(lastHoveredElement);
+      }
     }
 
     function hideOverlayForCapture() {
       if (!overlay) return;
       overlay.style.display = 'none';
-      restoreOverlayAfterCapture();
+    }
+
+    function waitForPaint() {
+      return new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
     }
 
     function getSelectorPath(element: Element): string {
@@ -501,14 +504,21 @@ export default defineContentScript({
       updateOverlay(target);
     }
 
-    function handleClick(e: MouseEvent) {
+    async function handleClick(e: MouseEvent) {
       if (!isSelecting) return;
       e.preventDefault();
       e.stopPropagation();
 
-      hideOverlayForCapture();
+      const selectingViewport = e.shiftKey || isViewportSelection;
+      const target = selectingViewport
+        ? null
+        : document.elementFromPoint(e.clientX, e.clientY);
+      if (!selectingViewport && !target) return;
 
-      if (e.shiftKey || isViewportSelection) {
+      hideOverlayForCapture();
+      await waitForPaint();
+
+      if (selectingViewport) {
         console.log('[genui] viewport selected');
         browser.runtime.sendMessage({
           type: 'ELEMENT_SELECTED',
@@ -517,11 +527,8 @@ export default defineContentScript({
         return;
       }
 
-      const target = document.elementFromPoint(e.clientX, e.clientY);
-      if (!target) return;
-
-      console.log('[genui] element selected:', target.tagName);
-      const data = extractElementData(target);
+      console.log('[genui] element selected:', target!.tagName);
+      const data = extractElementData(target!);
       browser.runtime.sendMessage({ type: 'ELEMENT_SELECTED', data });
       // 连续选择模式：保持选择状态，不隐藏遮罩
     }
@@ -582,6 +589,10 @@ export default defineContentScript({
       if (message.type === 'CAPTURE_PAGE_SNAPSHOT') {
         return extractPageData();
       }
+      if (message.type === 'RESTORE_ELEMENT_SELECTION_OVERLAY') {
+        restoreOverlayForSelection();
+        return;
+      }
       if (message.type === 'START_ELEMENT_SELECTION') {
         startSelection();
       } else if (message.type === 'STOP_ELEMENT_SELECTION') {
@@ -597,6 +608,8 @@ export default defineContentScript({
           startSelection();
         } else if (message.type === 'STOP_ELEMENT_SELECTION') {
           stopSelection();
+        } else if (message.type === 'RESTORE_ELEMENT_SELECTION_OVERLAY') {
+          restoreOverlayForSelection();
         }
       });
 

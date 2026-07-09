@@ -61,6 +61,15 @@ export function useElementSelection(
       });
   }, [closeSelectionPort]);
 
+  const restoreSelectionOverlayInTab = useCallback((tabId: number | null) => {
+    if (tabId == null) return;
+    browser.tabs
+      .sendMessage(tabId, { type: "RESTORE_ELEMENT_SELECTION_OVERLAY" })
+      .catch(() => {
+        // The target tab may have navigated or the content script may be gone.
+      });
+  }, []);
+
   const getActiveTabWithContentScript = useCallback(async () => {
     const [tab] = await browser.tabs.query({
       active: true,
@@ -154,23 +163,38 @@ export function useElementSelection(
 
   const handleElementSelected = useCallback(
     async (data: ElementSnapshot) => {
-      // 连续选择模式：保持 isSelecting 为 true，等待用户手动取消
+      // 连续选择模式：截图完成后恢复遮罩，等待用户手动取消
+      let tabId: number | null = null;
+      let didFinishSelection = false;
+
+      const finishSelection = () => {
+        if (didFinishSelection) return;
+        didFinishSelection = true;
+
+        if (mode === "single") {
+          setIsSelecting(false);
+          selectionTabIdRef.current = null;
+          stopSelectionInTab(tabId);
+        } else {
+          restoreSelectionOverlayInTab(tabId);
+        }
+      };
+
       try {
         const [tab] = await browser.tabs.query({
           active: true,
           currentWindow: true,
         });
+        tabId = tab?.id ?? null;
         if (!tab?.windowId) return;
 
-        const mdFile = createMarkdownFile(data, markdownOptions);
-        await runtime.addAttachment(mdFile);
-
+        let screenshotFile: File | null = null;
         if (includeScreenshot) {
           const screenshotDataUrl = await browser.tabs.captureVisibleTab(
             tab.windowId,
             { format: "png" },
           );
-          const screenshotFile =
+          screenshotFile =
             data.kind === "page" || data.kind === "viewport"
               ? createScreenshotFile(screenshotDataUrl)
               : createScreenshotFile(
@@ -180,19 +204,23 @@ export function useElementSelection(
                     data.devicePixelRatio,
                   ),
                 );
-          await runtime.addAttachment(screenshotFile);
         }
 
-        if (mode === "single") {
-          setIsSelecting(false);
-          selectionTabIdRef.current = null;
-          stopSelectionInTab(tab.id ?? null);
+        finishSelection();
+
+        const mdFile = createMarkdownFile(data, markdownOptions);
+        await runtime.addAttachment(mdFile);
+
+        if (screenshotFile) {
+          await runtime.addAttachment(screenshotFile);
         }
       } catch (error) {
         console.error("[useElementSelection] failed:", error);
+      } finally {
+        finishSelection();
       }
     },
-    [includeScreenshot, markdownOptions, runtime, mode],
+    [includeScreenshot, markdownOptions, runtime, mode, restoreSelectionOverlayInTab, stopSelectionInTab],
   );
 
   useEffect(() => {
