@@ -44,11 +44,13 @@ export type ElementSnapshot = {
 
 export type ElementSelectedMessage = {
   type: "ELEMENT_SELECTED";
+  tabId?: number;
   data: ElementSnapshot;
 };
 
 export type ElementSelectionCancelledMessage = {
   type: "ELEMENT_SELECTION_CANCELLED";
+  tabId?: number;
 };
 
 export type ElementPickerMessage =

@@ -112,7 +112,7 @@ export function useElementSelection(
 
     selectionTabIdRef.current = tab.id;
     setIsSelecting(true);
-    port.postMessage({ type: "START_ELEMENT_SELECTION" });
+    port.postMessage({ type: "START_ELEMENT_SELECTION", tabId: tab.id });
   }, [closeSelectionPort, getActiveTabWithContentScript]);
 
   const cancelSelection = useCallback(async () => {
@@ -225,9 +225,15 @@ export function useElementSelection(
 
   useEffect(() => {
     const listener = (message: ElementPickerMessage) => {
-      if (message.type === "ELEMENT_SELECTED") {
+      if (
+        message.type === "ELEMENT_SELECTED" &&
+        message.tabId === selectionTabIdRef.current
+      ) {
         handleElementSelected(message.data);
-      } else if (message.type === "ELEMENT_SELECTION_CANCELLED") {
+      } else if (
+        message.type === "ELEMENT_SELECTION_CANCELLED" &&
+        message.tabId === selectionTabIdRef.current
+      ) {
         selectionTabIdRef.current = null;
         setIsSelecting(false);
       }

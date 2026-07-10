@@ -16,6 +16,7 @@ export default defineContentScript({
     let isViewportSelection = false;
     let overlay: HTMLElement | null = null;
     let lastHoveredElement: Element | null = null;
+    let selectionTabId: number | null = null;
 
     const defaultStyleCache = new Map<string, Record<string, string>>();
 
@@ -518,6 +519,7 @@ export default defineContentScript({
         console.log('[genui] viewport selected');
         browser.runtime.sendMessage({
           type: 'ELEMENT_SELECTED',
+          tabId: selectionTabId ?? undefined,
           data: extractPageData(),
         });
         return;
@@ -525,7 +527,7 @@ export default defineContentScript({
 
       console.log('[genui] element selected:', target!.tagName);
       const data = extractElementData(target!);
-      browser.runtime.sendMessage({ type: 'ELEMENT_SELECTED', data });
+      browser.runtime.sendMessage({ type: 'ELEMENT_SELECTED', tabId: selectionTabId ?? undefined, data });
       // 连续选择模式：保持选择状态，不隐藏遮罩
     }
 
@@ -556,7 +558,7 @@ export default defineContentScript({
         e.preventDefault();
         e.stopPropagation();
         stopSelection();
-        browser.runtime.sendMessage({ type: 'ELEMENT_SELECTION_CANCELLED' });
+        browser.runtime.sendMessage({ type: 'ELEMENT_SELECTION_CANCELLED', tabId: selectionTabId ?? undefined });
         return;
       }
 
@@ -595,6 +597,7 @@ export default defineContentScript({
       isSelecting = false;
       isViewportSelection = false;
       lastHoveredElement = null;
+      selectionTabId = null;
       document.removeEventListener('mousemove', handleMouseMove, true);
       document.removeEventListener('click', handleSelectionEvent, true);
       document.removeEventListener('contextmenu', handleSelectionEvent, true);
@@ -604,7 +607,7 @@ export default defineContentScript({
       removeOverlay();
     }
 
-    browser.runtime.onMessage.addListener((message: { type: string; selectViewport?: boolean }) => {
+    browser.runtime.onMessage.addListener((message: { type: string; tabId?: number; selectViewport?: boolean }) => {
       if (message.type === 'PING') {
         return;
       }
@@ -626,6 +629,7 @@ export default defineContentScript({
         return;
       }
       if (message.type === 'START_ELEMENT_SELECTION') {
+        selectionTabId = message.tabId ?? null;
         startSelection();
       } else if (message.type === 'STOP_ELEMENT_SELECTION') {
         stopSelection();
@@ -635,8 +639,9 @@ export default defineContentScript({
     browser.runtime.onConnect.addListener((port) => {
       if (port.name !== 'element-selection') return;
 
-      port.onMessage.addListener((message: { type: string; selectViewport?: boolean }) => {
+      port.onMessage.addListener((message: { type: string; tabId?: number; selectViewport?: boolean }) => {
         if (message.type === 'START_ELEMENT_SELECTION') {
+          selectionTabId = message.tabId ?? null;
           startSelection();
         } else if (message.type === 'STOP_ELEMENT_SELECTION') {
           stopSelection();
