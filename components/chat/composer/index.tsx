@@ -9,9 +9,10 @@ import {
   ComposerPrimitive,
   unstable_useMentionAdapter,
   unstable_useSlashCommandAdapter,
+  useComposerRuntime,
 } from "@assistant-ui/react";
 import { LexicalComposerInput } from "@assistant-ui/react-lexical";
-import { type FC } from "react";
+import { type FC, useEffect } from "react";
 import { ComposerAction } from "./action";
 import { useSettings } from "@/components/chat/settings/context";
 import {
@@ -27,6 +28,34 @@ const mentionIconMap = {
 
 export const Composer: FC = () => {
   const { settings } = useSettings();
+  const runtime = useComposerRuntime();
+
+  useEffect(() => {
+    let lastEscTime = 0;
+    const DOUBLE_ESC_THRESHOLD = 300;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        lastEscTime = 0;
+        return;
+      }
+
+      const now = Date.now();
+      if (lastEscTime > 0 && now - lastEscTime < DOUBLE_ESC_THRESHOLD) {
+        event.preventDefault();
+        event.stopPropagation();
+        runtime.clearAttachments().catch(console.error);
+        lastEscTime = 0;
+      } else {
+        lastEscTime = now;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [runtime]);
 
   const mentionItems = settings.mentions.map((m) => ({
     id: m.id,
