@@ -42,8 +42,8 @@ export const ComposerAction: FC = () => {
         <TooltipIconButton
           tooltip={
             isSelecting
-              ? "Cancel selection · Shift-click to capture page"
-              : "Select element · Shift-click to capture page"
+              ? "Cancel selection · Shift for page · Enter to select"
+              : "Select element · Click/right-click/Enter · Shift for page"
           }
           side="bottom"
           type="button"

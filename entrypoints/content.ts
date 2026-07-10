@@ -504,15 +504,11 @@ export default defineContentScript({
       updateOverlay(target);
     }
 
-    async function handleClick(e: MouseEvent) {
+    async function selectElement(
+      target: Element | null,
+      selectingViewport: boolean,
+    ) {
       if (!isSelecting) return;
-      e.preventDefault();
-      e.stopPropagation();
-
-      const selectingViewport = e.shiftKey || isViewportSelection;
-      const target = selectingViewport
-        ? null
-        : document.elementFromPoint(e.clientX, e.clientY);
       if (!selectingViewport && !target) return;
 
       hideOverlayForCapture();
@@ -533,12 +529,39 @@ export default defineContentScript({
       // 连续选择模式：保持选择状态，不隐藏遮罩
     }
 
+    async function handleSelectionEvent(e: MouseEvent) {
+      if (!isSelecting) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const selectingViewport = e.shiftKey || isViewportSelection;
+      const target = selectingViewport
+        ? null
+        : document.elementFromPoint(e.clientX, e.clientY);
+      await selectElement(target, selectingViewport);
+    }
+
+    async function handleEnterKey(e: KeyboardEvent) {
+      if (!isSelecting) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const selectingViewport = e.shiftKey || isViewportSelection;
+      const target = selectingViewport ? null : lastHoveredElement;
+      await selectElement(target, selectingViewport);
+    }
+
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
         stopSelection();
         browser.runtime.sendMessage({ type: 'ELEMENT_SELECTION_CANCELLED' });
+        return;
+      }
+
+      if (e.key === 'Enter') {
+        handleEnterKey(e);
         return;
       }
 
@@ -561,7 +584,8 @@ export default defineContentScript({
       isSelecting = true;
       createOverlay();
       document.addEventListener('mousemove', handleMouseMove, true);
-      document.addEventListener('click', handleClick, true);
+      document.addEventListener('click', handleSelectionEvent, true);
+      document.addEventListener('contextmenu', handleSelectionEvent, true);
       document.addEventListener('keydown', handleKeyDown, true);
       document.addEventListener('keyup', handleKeyUp, true);
       document.body.style.cursor = 'crosshair';
@@ -572,14 +596,15 @@ export default defineContentScript({
       isViewportSelection = false;
       lastHoveredElement = null;
       document.removeEventListener('mousemove', handleMouseMove, true);
-      document.removeEventListener('click', handleClick, true);
+      document.removeEventListener('click', handleSelectionEvent, true);
+      document.removeEventListener('contextmenu', handleSelectionEvent, true);
       document.removeEventListener('keydown', handleKeyDown, true);
       document.removeEventListener('keyup', handleKeyUp, true);
       document.body.style.cursor = '';
       removeOverlay();
     }
 
-    browser.runtime.onMessage.addListener((message: { type: string }) => {
+    browser.runtime.onMessage.addListener((message: { type: string; selectViewport?: boolean }) => {
       if (message.type === 'PING') {
         return;
       }
@@ -593,6 +618,13 @@ export default defineContentScript({
         restoreOverlayForSelection();
         return;
       }
+      if (message.type === 'SELECT_HIGHLIGHTED_ELEMENT') {
+        selectElement(
+          message.selectViewport ? null : lastHoveredElement,
+          message.selectViewport || isViewportSelection,
+        );
+        return;
+      }
       if (message.type === 'START_ELEMENT_SELECTION') {
         startSelection();
       } else if (message.type === 'STOP_ELEMENT_SELECTION') {
@@ -603,13 +635,18 @@ export default defineContentScript({
     browser.runtime.onConnect.addListener((port) => {
       if (port.name !== 'element-selection') return;
 
-      port.onMessage.addListener((message: { type: string }) => {
+      port.onMessage.addListener((message: { type: string; selectViewport?: boolean }) => {
         if (message.type === 'START_ELEMENT_SELECTION') {
           startSelection();
         } else if (message.type === 'STOP_ELEMENT_SELECTION') {
           stopSelection();
         } else if (message.type === 'RESTORE_ELEMENT_SELECTION_OVERLAY') {
           restoreOverlayForSelection();
+        } else if (message.type === 'SELECT_HIGHLIGHTED_ELEMENT') {
+          selectElement(
+            message.selectViewport ? null : lastHoveredElement,
+            message.selectViewport || isViewportSelection,
+          );
         }
       });
 

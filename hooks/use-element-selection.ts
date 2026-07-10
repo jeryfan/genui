@@ -249,11 +249,36 @@ export function useElementSelection(
   useEffect(() => {
     if (!isSelecting) return;
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+    const handleKeyDown = async (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        cancelSelection();
+        return;
+      }
+
+      if (event.key !== "Enter") return;
       event.preventDefault();
       event.stopPropagation();
-      cancelSelection();
+
+      let tabId = selectionTabIdRef.current;
+      if (tabId == null) {
+        const [tab] = await browser.tabs.query({
+          active: true,
+          currentWindow: true,
+        });
+        tabId = tab?.id ?? null;
+      }
+      if (tabId == null) return;
+
+      try {
+        await browser.tabs.sendMessage(tabId, {
+          type: "SELECT_HIGHLIGHTED_ELEMENT",
+          selectViewport: event.shiftKey,
+        });
+      } catch {
+        // The target tab may have navigated or the content script may be gone.
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown, true);
