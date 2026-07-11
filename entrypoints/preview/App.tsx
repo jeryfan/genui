@@ -9,8 +9,8 @@ import {
   XIcon,
 } from "lucide-react";
 
+import { UnifiedPreview } from "@/components/preview/unified-preview";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 
 const Preview: FC = () => {
   const [html, setHtml] = useState<string | null>(null);
@@ -152,19 +152,19 @@ const Preview: FC = () => {
 
       <main className="relative flex-1 overflow-hidden">
         {isEditing ? (
-          <Textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Paste or type HTML here..."
-            className="h-full resize-none rounded-none border-0 px-3 py-2 font-mono text-sm focus-visible:ring-0"
-            spellCheck={false}
+          <UnifiedPreview
+            name="preview.html"
+            content={draft}
+            className="h-full w-full overflow-hidden"
+            isEditing
+            updateEnabled
+            onContentChange={setDraft}
           />
         ) : html !== null ? (
-          <iframe
-            srcDoc={html}
-            className="h-full w-full border-0"
-            sandbox="allow-scripts"
-            title="Preview"
+          <UnifiedPreview
+            name="preview.html"
+            content={html}
+            className="h-full w-full overflow-hidden"
           />
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-gray-500">

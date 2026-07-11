@@ -2,8 +2,6 @@
 
 import { type PropsWithChildren, useEffect, useState, type FC } from "react";
 import {
-  CheckIcon,
-  CopyIcon,
   XIcon,
   PlusIcon,
   FileText,
@@ -28,8 +26,10 @@ import {
   DialogTitle,
   DialogContent,
   DialogTrigger,
+  DialogClose,
 } from "@/components/ui/dialog";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { UnifiedPreview } from "@/components/preview/unified-preview";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { cn } from "@/lib/utils";
 
@@ -68,7 +68,7 @@ const useAttachmentSrc = () => {
   return useFileSrc(file) ?? src;
 };
 
-function isMarkdownAttachment(input: {
+function isTextPreviewAttachment(input: {
   name?: string;
   contentType?: string;
   fileType?: string;
@@ -78,10 +78,11 @@ function isMarkdownAttachment(input: {
   const fileType = input.fileType?.toLowerCase() ?? "";
 
   return (
-    name.endsWith(".md") ||
-    name.endsWith(".markdown") ||
-    contentType.includes("markdown") ||
-    fileType.includes("markdown")
+    /\.(md|markdown|txt|json|csv|html?|css|js|jsx|ts|tsx|vue|xml|yaml|yml|log)$/i.test(name) ||
+    contentType.startsWith("text/") ||
+    fileType.startsWith("text/") ||
+    contentType.includes("json") ||
+    fileType.includes("json")
   );
 }
 
@@ -96,7 +97,7 @@ function unwrapAttachmentText(text: string) {
   return text;
 }
 
-const useAttachmentMarkdownPreview = () => {
+const useAttachmentTextPreview = () => {
   const { file, contentText, contentType, fileType, name } = useAuiState(
     useShallow(
       (s): {
@@ -122,12 +123,12 @@ const useAttachmentMarkdownPreview = () => {
     ),
   );
   const [fileText, setFileText] = useState<string | undefined>(undefined);
-  const isMarkdown = isMarkdownAttachment({ name, contentType, fileType });
+  const isPreviewableText = isTextPreviewAttachment({ name, contentType, fileType });
 
   useEffect(() => {
     let cancelled = false;
 
-    if (!file || !isMarkdown) {
+    if (!file || !isPreviewableText) {
       setFileText(undefined);
       return;
     }
@@ -144,12 +145,13 @@ const useAttachmentMarkdownPreview = () => {
     return () => {
       cancelled = true;
     };
-  }, [file, isMarkdown]);
+  }, [file, isPreviewableText]);
 
-  if (!isMarkdown) return undefined;
+  if (!isPreviewableText) return undefined;
 
   return {
     name,
+    mimeType: contentType || fileType,
     text: contentText ?? fileText,
   };
 };
@@ -177,21 +179,11 @@ const AttachmentPreview: FC<AttachmentPreviewProps> = ({ src }) => {
 
 const AttachmentPreviewDialog: FC<PropsWithChildren> = ({ children }) => {
   const src = useAttachmentSrc();
-  const markdown = useAttachmentMarkdownPreview();
-  const [isCopied, setIsCopied] = useState(false);
+  const filePreview = useAttachmentTextPreview();
 
-  if (!src && !markdown) return children;
+  if (!src && !filePreview) return children;
 
-  const copyMarkdown = () => {
-    if (!markdown?.text || isCopied) return;
-    navigator.clipboard.writeText(markdown.text).then(
-      () => {
-        setIsCopied(true);
-        window.setTimeout(() => setIsCopied(false), 2000);
-      },
-      () => {},
-    );
-  };
+  const title = src ? "Image Attachment Preview" : (filePreview?.name ?? "附件预览");
 
   return (
     <Dialog>
@@ -200,42 +192,36 @@ const AttachmentPreviewDialog: FC<PropsWithChildren> = ({ children }) => {
       >
         {children}
       </DialogTrigger>
-      <DialogContent className={cn(
-        "aui-attachment-preview-dialog-content p-2",
-        src
-          ? "[&>button]:bg-foreground/60 [&_svg]:text-background [&>button]:hover:[&_svg]:text-destructive sm:max-w-3xl [&>button]:rounded-full [&>button]:p-1 [&>button]:opacity-100 [&>button]:ring-0!"
-          : "sm:max-w-4xl",
-      )}>
-        <DialogTitle className={cn(src && "aui-sr-only sr-only")}>
-          {src ? "Image Attachment Preview" : markdown?.name}
-        </DialogTitle>
-        {src ? (
-          <div className="aui-attachment-preview bg-background relative mx-auto flex max-h-[80dvh] w-full items-center justify-center overflow-hidden">
-            <AttachmentPreview src={src} />
-          </div>
-        ) : (
-          <div className="grid gap-2">
-            <div className="flex items-center justify-end pr-8">
-              <TooltipIconButton
-                tooltip={isCopied ? "Copied" : "Copy file content"}
-                variant="ghost"
-                size="icon-sm"
-                className="size-7"
-                onClick={copyMarkdown}
-                disabled={!markdown?.text}
-              >
-                {isCopied ? (
-                  <CheckIcon className="size-4" />
-                ) : (
-                  <CopyIcon className="size-4" />
-                )}
-              </TooltipIconButton>
+      <DialogContent
+        showCloseButton={false}
+        className="aui-attachment-preview-dialog-content top-[74px] grid h-[min(592px,calc(100dvh-104px))] w-[min(780px,calc(100vw-60px))] translate-y-0 grid-rows-[52px_minmax(0,1fr)_55px] gap-0 overflow-hidden rounded-2xl bg-white p-0 pb-4 text-[#0d0d0d] shadow-[0_8px_12px_rgba(0,0,0,0.08),0_0_1px_rgba(0,0,0,0.62)] ring-0 sm:max-w-none"
+      >
+        <header className="grid min-h-[52px] grid-cols-[minmax(0,1fr)_min-content] items-center gap-3 border-b border-black/5 px-4 py-2.5 select-none">
+          <DialogTitle className="truncate text-lg leading-normal font-normal text-[#0d0d0d]">
+            {title}
+          </DialogTitle>
+        </header>
+
+        <div className="min-h-0 overflow-hidden px-5">
+          {src ? (
+            <div className="aui-attachment-preview relative mx-auto flex h-full w-full items-center justify-center overflow-hidden bg-white">
+              <AttachmentPreview src={src} />
             </div>
-            <pre className="bg-muted/40 max-h-[75dvh] overflow-auto rounded-lg border p-4 text-xs leading-relaxed whitespace-pre-wrap">
-              <code>{markdown?.text ?? "Loading..."}</code>
-            </pre>
-          </div>
-        )}
+          ) : (
+            <UnifiedPreview
+              name={filePreview?.name ?? "attachment.txt"}
+              content={filePreview?.text ?? "Loading..."}
+              mimeType={filePreview?.mimeType}
+              className="h-full overflow-hidden bg-white text-[#0d0d0d]"
+            />
+          )}
+        </div>
+
+        <footer className="z-10 flex items-center justify-end gap-3 border-t border-black/7 px-4 pt-4">
+          <DialogClose className="inline-flex min-w-20 cursor-pointer items-center justify-center rounded-lg border border-black/12 bg-white px-4 py-2 text-sm font-medium text-[#0d0d0d] transition-colors hover:bg-[#f5f5f5] active:bg-[#ebebeb]">
+            关闭
+          </DialogClose>
+        </footer>
       </DialogContent>
     </Dialog>
   );
