@@ -33,7 +33,7 @@ import { UnifiedPreview } from "@/components/preview/unified-preview";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { cn } from "@/lib/utils";
 
-const useFileSrc = (file: File | undefined) => {
+const useFileObjectUrl = (file: File | undefined) => {
   const [src, setSrc] = useState<string | undefined>(undefined);
 
   useEffect(() => {
@@ -53,38 +53,10 @@ const useFileSrc = (file: File | undefined) => {
   return src;
 };
 
-const useAttachmentSrc = () => {
-  const { file, src } = useAuiState(
-    useShallow((s): { file?: File; src?: string } => {
-      if (s.attachment.type !== "image") return {};
-      if (s.attachment.file) return { file: s.attachment.file };
-      const src = s.attachment.content?.filter((c) => c.type === "image")[0]
-        ?.image;
-      if (!src) return {};
-      return { src };
-    }),
-  );
-
-  return useFileSrc(file) ?? src;
+const parseDataUrlMimeType = (value: string | undefined) => {
+  const match = value?.match(/^data:([^;,]+)[;,]/);
+  return match?.[1];
 };
-
-function isTextPreviewAttachment(input: {
-  name?: string;
-  contentType?: string;
-  fileType?: string;
-}) {
-  const name = input.name?.toLowerCase() ?? "";
-  const contentType = input.contentType?.toLowerCase() ?? "";
-  const fileType = input.fileType?.toLowerCase() ?? "";
-
-  return (
-    /\.(md|markdown|txt|json|csv|html?|css|js|jsx|ts|tsx|vue|xml|yaml|yml|log)$/i.test(name) ||
-    contentType.startsWith("text/") ||
-    fileType.startsWith("text/") ||
-    contentType.includes("json") ||
-    fileType.includes("json")
-  );
-}
 
 function unwrapAttachmentText(text: string) {
   const start = text.indexOf("\n");
@@ -97,12 +69,28 @@ function unwrapAttachmentText(text: string) {
   return text;
 }
 
-const useAttachmentTextPreview = () => {
-  const { file, contentText, contentType, fileType, name } = useAuiState(
+const useAttachmentImageSrc = () => {
+  const { file, src } = useAuiState(
+    useShallow((s): { file?: File; src?: string } => {
+      if (s.attachment.type !== "image") return {};
+      if (s.attachment.file) return { file: s.attachment.file };
+      const src = s.attachment.content?.filter((c) => c.type === "image")[0]
+        ?.image;
+      if (!src) return {};
+      return { src };
+    }),
+  );
+
+  return useFileObjectUrl(file) ?? src;
+};
+
+const useAttachmentPreview = () => {
+  const { file, contentText, contentUrl, contentType, fileType, name } = useAuiState(
     useShallow(
       (s): {
         file?: File;
         contentText?: string;
+        contentUrl?: string;
         contentType?: string;
         fileType?: string;
         name: string;
@@ -111,10 +99,13 @@ const useAttachmentTextPreview = () => {
           ?.filter((part) => part.type === "text")
           .map((part) => part.text)
           .join("\n");
+        const image = s.attachment.content?.filter((part) => part.type === "image")[0]
+          ?.image;
 
         return {
           file: s.attachment.file,
           contentText: text ? unwrapAttachmentText(text) : undefined,
+          contentUrl: image,
           contentType: s.attachment.contentType,
           fileType: s.attachment.file?.type,
           name: s.attachment.name,
@@ -122,68 +113,24 @@ const useAttachmentTextPreview = () => {
       },
     ),
   );
-  const [fileText, setFileText] = useState<string | undefined>(undefined);
-  const isPreviewableText = isTextPreviewAttachment({ name, contentType, fileType });
+  const objectUrl = useFileObjectUrl(file);
+  const content = contentText ?? objectUrl ?? contentUrl;
 
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!file || !isPreviewableText) {
-      setFileText(undefined);
-      return;
-    }
-
-    file.text().then(
-      (text) => {
-        if (!cancelled) setFileText(text);
-      },
-      () => {
-        if (!cancelled) setFileText(undefined);
-      },
-    );
-
-    return () => {
-      cancelled = true;
-    };
-  }, [file, isPreviewableText]);
-
-  if (!isPreviewableText) return undefined;
+  if (!content) return undefined;
 
   return {
-    name,
-    mimeType: contentType || fileType,
-    text: contentText ?? fileText,
+    name: name || file?.name || "attachment",
+    mimeType: contentType || fileType || parseDataUrlMimeType(content),
+    content,
   };
 };
 
-type AttachmentPreviewProps = {
-  src: string;
-};
-
-const AttachmentPreview: FC<AttachmentPreviewProps> = ({ src }) => {
-  const [isLoaded, setIsLoaded] = useState(false);
-  return (
-    <img
-      src={src}
-      alt="Attachment preview"
-      className={cn(
-        "block h-auto max-h-[80vh] w-auto max-w-full object-contain",
-        isLoaded
-          ? "aui-attachment-preview-image-loaded"
-          : "aui-attachment-preview-image-loading invisible",
-      )}
-      onLoad={() => setIsLoaded(true)}
-    />
-  );
-};
-
 const AttachmentPreviewDialog: FC<PropsWithChildren> = ({ children }) => {
-  const src = useAttachmentSrc();
-  const filePreview = useAttachmentTextPreview();
+  const preview = useAttachmentPreview();
 
-  if (!src && !filePreview) return children;
+  if (!preview) return children;
 
-  const title = src ? "Image Attachment Preview" : (filePreview?.name ?? "附件预览");
+  const title = preview.name || "附件预览";
 
   return (
     <Dialog>
@@ -203,18 +150,12 @@ const AttachmentPreviewDialog: FC<PropsWithChildren> = ({ children }) => {
         </header>
 
         <div className="min-h-0 overflow-hidden px-5">
-          {src ? (
-            <div className="aui-attachment-preview relative mx-auto flex h-full w-full items-center justify-center overflow-hidden bg-white">
-              <AttachmentPreview src={src} />
-            </div>
-          ) : (
-            <UnifiedPreview
-              name={filePreview?.name ?? "attachment.txt"}
-              content={filePreview?.text ?? "Loading..."}
-              mimeType={filePreview?.mimeType}
-              className="h-full overflow-hidden bg-white text-[#0d0d0d]"
-            />
-          )}
+          <UnifiedPreview
+            name={preview.name}
+            content={preview.content}
+            mimeType={preview.mimeType}
+            className="h-full overflow-hidden bg-white text-[#0d0d0d]"
+          />
         </div>
 
         <footer className="z-10 flex items-center justify-end gap-3 border-t border-black/7 px-4 pt-4">
@@ -228,7 +169,7 @@ const AttachmentPreviewDialog: FC<PropsWithChildren> = ({ children }) => {
 };
 
 const AttachmentThumb: FC = () => {
-  const src = useAttachmentSrc();
+  const src = useAttachmentImageSrc();
 
   return (
     <Avatar className="aui-attachment-tile-avatar h-full w-full rounded-none">
