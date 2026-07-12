@@ -20,6 +20,7 @@ export const ComposerAction: FC = () => {
   const { isSelecting, startSelection, cancelSelection, capturePage } = useElementSelection(
     settings.general.pickerMode,
     settings.general.captureParts,
+    settings.general.hiddenCapture,
   );
 
   const handleSelectionClick = (event: MouseEvent<HTMLButtonElement>) => {

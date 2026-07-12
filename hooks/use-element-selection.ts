@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useComposerRuntime } from "@assistant-ui/react";
 import {
+  createHiddenInteractionsMarkdownFile,
   createMarkdownFile,
   createScreenshotFile,
   cropScreenshot,
@@ -13,6 +14,7 @@ import {
 import {
   DEFAULT_GENERAL_SETTINGS,
   type CapturePart,
+  type GeneralSettings,
 } from "@/components/chat/settings/types";
 
 const DEFAULT_CAPTURE_PARTS: CapturePart[] = DEFAULT_GENERAL_SETTINGS.captureParts;
@@ -20,13 +22,17 @@ const DEFAULT_CAPTURE_PARTS: CapturePart[] = DEFAULT_GENERAL_SETTINGS.capturePar
 export function useElementSelection(
   mode: "continuous" | "single" = "continuous",
   captureParts: CapturePart[] = DEFAULT_CAPTURE_PARTS,
+  hiddenCapture: GeneralSettings["hiddenCapture"] = DEFAULT_GENERAL_SETTINGS.hiddenCapture,
 ) {
   const runtime = useComposerRuntime();
   const [isSelecting, setIsSelecting] = useState(false);
   const selectionTabIdRef = useRef<number | null>(null);
+  const hiddenCaptureTabIdRef = useRef<number | null>(null);
+  const pendingHiddenFinishRef = useRef<(() => void) | null>(null);
   const selectionPortRef = useRef<ReturnType<typeof browser.tabs.connect> | null>(null);
 
   const includeScreenshot = captureParts.includes("screenshot");
+  const includeHidden = captureParts.includes("hidden");
   const markdownOptions = useMemo(
     () => ({
       includeHtml: captureParts.includes("html"),
@@ -112,8 +118,13 @@ export function useElementSelection(
 
     selectionTabIdRef.current = tab.id;
     setIsSelecting(true);
-    port.postMessage({ type: "START_ELEMENT_SELECTION", tabId: tab.id });
-  }, [closeSelectionPort, getActiveTabWithContentScript]);
+    port.postMessage({
+      type: "START_ELEMENT_SELECTION",
+      tabId: tab.id,
+      includeHidden,
+      hiddenCapture,
+    });
+  }, [closeSelectionPort, getActiveTabWithContentScript, includeHidden, hiddenCapture]);
 
   const cancelSelection = useCallback(async () => {
     let tabId = selectionTabIdRef.current;
@@ -206,7 +217,9 @@ export function useElementSelection(
                 );
         }
 
-        finishSelection();
+        const shouldCaptureHiddenInteractions = Boolean(
+          data.hasPendingHiddenInteractions,
+        );
 
         const mdFile = createMarkdownFile(data, markdownOptions);
         await runtime.addAttachment(mdFile);
@@ -214,13 +227,60 @@ export function useElementSelection(
         if (screenshotFile) {
           await runtime.addAttachment(screenshotFile);
         }
+
+        if (shouldCaptureHiddenInteractions && tabId != null) {
+          hiddenCaptureTabIdRef.current = tabId;
+          pendingHiddenFinishRef.current = finishSelection;
+          // The selected element's base attachments are already added; remove only
+          // the page picker chrome before opening popovers. Keep side panel in the
+          // selecting/cancel state until the hidden attachment is done.
+          browser.tabs
+            .sendMessage(tabId, { type: "STOP_ELEMENT_SELECTION_CHROME" })
+            .catch(() => {
+              // The target tab may have navigated; still try hidden capture below.
+            });
+          browser.tabs
+            .sendMessage(tabId, {
+              type: "CAPTURE_HIDDEN_INTERACTIONS",
+              tabId,
+              hiddenCapture,
+            })
+            .catch(() => {
+              hiddenCaptureTabIdRef.current = null;
+              pendingHiddenFinishRef.current?.();
+              pendingHiddenFinishRef.current = null;
+              selectionTabIdRef.current = null;
+              setIsSelecting(false);
+            });
+          return;
+        }
+
+        finishSelection();
       } catch (error) {
         console.error("[useElementSelection] failed:", error);
-      } finally {
         finishSelection();
       }
     },
-    [includeScreenshot, markdownOptions, runtime, mode, restoreSelectionOverlayInTab, stopSelectionInTab],
+    [includeScreenshot, markdownOptions, runtime, mode, restoreSelectionOverlayInTab, stopSelectionInTab, hiddenCapture],
+  );
+
+  const handleHiddenInteractionsSelected = useCallback(
+    async (selector: string, message: Extract<ElementPickerMessage, { type: "ELEMENT_HIDDEN_INTERACTIONS_SELECTED" }>) => {
+      try {
+        if (message.data.length > 0) {
+          await runtime.addAttachment(
+            createHiddenInteractionsMarkdownFile(selector, message.data),
+          );
+        }
+      } catch (error) {
+        console.error("[useElementSelection] failed to add hidden interactions:", error);
+      } finally {
+        pendingHiddenFinishRef.current?.();
+        pendingHiddenFinishRef.current = null;
+        hiddenCaptureTabIdRef.current = null;
+      }
+    },
+    [runtime],
   );
 
   useEffect(() => {
@@ -230,6 +290,11 @@ export function useElementSelection(
         message.tabId === selectionTabIdRef.current
       ) {
         handleElementSelected(message.data);
+      } else if (
+        message.type === "ELEMENT_HIDDEN_INTERACTIONS_SELECTED" &&
+        message.tabId === hiddenCaptureTabIdRef.current
+      ) {
+        handleHiddenInteractionsSelected(message.selector, message);
       } else if (
         message.type === "ELEMENT_SELECTION_CANCELLED" &&
         message.tabId === selectionTabIdRef.current
@@ -243,7 +308,7 @@ export function useElementSelection(
     return () => {
       browser.runtime.onMessage.removeListener(listener);
     };
-  }, [handleElementSelected]);
+  }, [handleElementSelected, handleHiddenInteractionsSelected]);
 
   useEffect(() => {
     return () => {
@@ -281,6 +346,8 @@ export function useElementSelection(
         await browser.tabs.sendMessage(tabId, {
           type: "SELECT_HIGHLIGHTED_ELEMENT",
           selectViewport: event.shiftKey,
+          includeHidden,
+          hiddenCapture,
         });
       } catch {
         // The target tab may have navigated or the content script may be gone.
@@ -291,7 +358,7 @@ export function useElementSelection(
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [isSelecting, cancelSelection]);
+  }, [isSelecting, cancelSelection, includeHidden, hiddenCapture]);
 
   return {
     isSelecting,

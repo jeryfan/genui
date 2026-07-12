@@ -49,7 +49,7 @@ export const SettingsPage: FC<{ onBack?: () => void }> = ({ onBack }) => {
           ))}
         </nav>
       </aside>
-      <main className="flex flex-1 flex-col overflow-hidden p-4">
+      <main className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">
         {activeTab === "models" && <ModelsSection />}
         {activeTab === "system-prompt" && <SystemPromptSection />}
         {activeTab === "general" && <GeneralSection />}

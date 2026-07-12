@@ -26,6 +26,24 @@ export type ElementTreeNode = {
   children: ElementTreeNode[];
 };
 
+export type HiddenInteractionAction = "click" | "hover" | "focus";
+
+export type HiddenInteractionSnapshot = {
+  triggerSelector: string;
+  triggerText: string;
+  action: HiddenInteractionAction;
+  revealedSelector: string;
+  revealedRole?: string;
+  matchedBy?: string;
+  waitTimeMs?: number;
+  depth?: number;
+  parentTriggerSelector?: string;
+  rect: ElementRect;
+  html: string;
+  styles: Record<string, string>;
+  tree?: ElementTreeNode;
+};
+
 export type ElementSnapshot = {
   kind?: "element" | "viewport" | "page";
   selector: string;
@@ -40,12 +58,21 @@ export type ElementSnapshot = {
   styles: Record<string, string>;
   html: string;
   tree?: ElementTreeNode;
+  hiddenInteractions?: HiddenInteractionSnapshot[];
+  hasPendingHiddenInteractions?: boolean;
 };
 
 export type ElementSelectedMessage = {
   type: "ELEMENT_SELECTED";
   tabId?: number;
   data: ElementSnapshot;
+};
+
+export type ElementHiddenInteractionsSelectedMessage = {
+  type: "ELEMENT_HIDDEN_INTERACTIONS_SELECTED";
+  tabId?: number;
+  selector: string;
+  data: HiddenInteractionSnapshot[];
 };
 
 export type ElementSelectionCancelledMessage = {
@@ -55,6 +82,7 @@ export type ElementSelectionCancelledMessage = {
 
 export type ElementPickerMessage =
   | ElementSelectedMessage
+  | ElementHiddenInteractionsSelectedMessage
   | ElementSelectionCancelledMessage;
 
 /**
@@ -114,6 +142,52 @@ function formatPseudoElement(
   ].join("\n");
 }
 
+function formatHiddenInteraction(
+  interaction: HiddenInteractionSnapshot,
+  index: number,
+): string {
+  const treeContent = interaction.tree
+    ? `\n#### Revealed Element Tree\n\n${formatElementTreeNode(interaction.tree)}\n`
+    : "";
+
+  return [
+    `### Interaction ${index + 1}`,
+    `- Trigger Selector: ${interaction.triggerSelector}`,
+    interaction.triggerText
+      ? `- Trigger Text: ${interaction.triggerText}`
+      : "- Trigger Text: none",
+    `- Action: ${interaction.action}`,
+    `- Revealed Selector: ${interaction.revealedSelector}`,
+    interaction.revealedRole
+      ? `- Revealed Role: ${interaction.revealedRole}`
+      : "- Revealed Role: none",
+    interaction.matchedBy
+      ? `- Matched By: ${interaction.matchedBy}`
+      : "- Matched By: inferred overlay",
+    interaction.waitTimeMs != null
+      ? `- Wait Time: ${interaction.waitTimeMs}ms`
+      : "- Wait Time: unknown",
+    interaction.depth != null
+      ? `- Depth: ${interaction.depth}`
+      : "- Depth: 0",
+    interaction.parentTriggerSelector
+      ? `- Parent Trigger Selector: ${interaction.parentTriggerSelector}`
+      : "- Parent Trigger Selector: none",
+    formatRect(interaction.rect),
+    "#### Revealed Computed Styles",
+    "```css",
+    formatStyles(interaction.styles),
+    "```",
+    treeContent,
+    "#### Revealed HTML",
+    "```html",
+    interaction.html,
+    "```",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 function formatElementTreeNode(node: ElementTreeNode, depth = 0): string {
   const headingLevel = Math.min(3 + depth, 6);
   const heading = `${"#".repeat(headingLevel)} ${node.selector}`;
@@ -168,6 +242,11 @@ export function createMarkdownFile(
   const htmlContent = includeHtml
     ? `\n## HTML\n\`\`\`html\n${data.html}\n\`\`\`\n`
     : "";
+  const hiddenInteractionContent = data.hiddenInteractions?.length
+    ? `\n## Hidden Interaction Elements\n\n${data.hiddenInteractions
+        .map(formatHiddenInteraction)
+        .join("\n\n")}\n`
+    : "";
 
   const content = `# Element Snapshot
 
@@ -196,9 +275,44 @@ ${viewportContent}
 \`\`\`css
 ${formatStyles(data.styles)}
 \`\`\`
-${treeContent}${htmlContent}`;
+${treeContent}${htmlContent}${hiddenInteractionContent}`;
 
   return new File([content], `${kind}-${Date.now()}.md`, {
+    type: "text/markdown",
+  });
+}
+
+export function createHiddenInteractionsMarkdownFile(
+  selector: string,
+  interactions: HiddenInteractionSnapshot[],
+): File {
+  const content = `# Hidden Interaction Elements
+
+## Source Selector
+\`\`\`\n${selector}\n\`\`\`
+
+## Interaction Implementation Notes
+
+When implementing click outside, close, toggle, menu, dialog, popover, dropdown, or tooltip behavior, the event target may be a nested icon, svg, path, span, or other child inside the trigger button.
+
+Use containment-based checks:
+~~~js
+if (!popover.contains(event.target) && !trigger.contains(event.target)) {
+  closePopover();
+}
+
+const button = event.target.closest("button");
+~~~
+
+Do not use root-node-only checks:
+~~~js
+if (event.target !== trigger) closePopover();
+if (event.target === trigger) togglePopover();
+~~~
+
+${interactions.map(formatHiddenInteraction).join("\n\n")}\n`;
+
+  return new File([content], `hidden-interactions-${Date.now()}.md`, {
     type: "text/markdown",
   });
 }

@@ -34,6 +34,15 @@ function migrateMentions(mentions?: Partial<Settings>["mentions"]): Settings["me
   });
 }
 
+function normalizeHiddenCapture(
+  hiddenCapture?: Partial<Settings["general"]["hiddenCapture"]>,
+): Settings["general"]["hiddenCapture"] {
+  return {
+    ...DEFAULT_SETTINGS.general.hiddenCapture,
+    ...(hiddenCapture ?? {}),
+  };
+}
+
 export function normalizeSettings(stored?: Partial<Settings>): Settings {
   if (!stored) return DEFAULT_SETTINGS;
 
@@ -44,6 +53,7 @@ export function normalizeSettings(stored?: Partial<Settings>): Settings {
     general: {
       ...DEFAULT_SETTINGS.general,
       ...stored.general,
+      hiddenCapture: normalizeHiddenCapture(stored.general?.hiddenCapture),
     },
     mentions: migrateMentions(stored.mentions),
   };

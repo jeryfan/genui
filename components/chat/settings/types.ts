@@ -2,7 +2,7 @@ import type { Api, Model, ProviderId, ThinkingLevel } from "@jeryfan/ai";
 
 export type OutputFormat = "html" | "react" | "vue";
 export type PickerMode = "continuous" | "single";
-export type CapturePart = "screenshot" | "html" | "tree";
+export type CapturePart = "screenshot" | "html" | "tree" | "hidden";
 
 export interface Mention {
   id: string;
@@ -21,10 +21,20 @@ export interface ModelConfig extends Model<Api> {
   thinkingLevel?: ModelThinkingLevel;
 }
 
+export type HiddenCaptureActionStrategy = "first-match" | "all";
+
 export interface GeneralSettings {
   defaultFormat: OutputFormat;
   pickerMode: PickerMode;
   captureParts: CapturePart[];
+  hiddenCapture: {
+    revealTimeoutMs: number;
+    triggerIntervalMs: number;
+    actionStrategy: HiddenCaptureActionStrategy;
+    recursive: boolean;
+    maxDepth: number;
+    hoverRevealTriggers: boolean;
+  };
 }
 
 export interface Settings {
@@ -148,6 +158,36 @@ export const DEFAULT_SYSTEM_PROMPT = `你是一位像素级 UI-to-code 复刻工
 - 可以使用 CSS variables 管理重复颜色和尺寸；
 - 不要为了抽象而过度简化样式。
 
+## 交互实现要求
+
+如果目标元素包含可见交互状态、浮层、菜单、弹窗、下拉、tooltip、popover、dialog 或附件中提供了 Hidden Interaction Elements，必须实现对应的最小 JavaScript 交互，不能只实现静态展开状态。
+
+生成点击外部关闭、toggle、菜单、弹窗、popover 等逻辑时，必须考虑 SVG、path、span、icon 等子元素作为真实 event target 的情况。判断是否点击触发器内部时必须使用 contains 或 closest，不要使用 event.target === button 或 event.target !== button 这种只匹配根节点的写法。
+
+正确示例：
+~~~js
+const trigger = document.getElementById("addBtn");
+const popover = document.getElementById("popover");
+
+document.addEventListener("click", (event) => {
+  if (!popover.contains(event.target) && !trigger.contains(event.target)) {
+    popover.classList.remove("open");
+    trigger.setAttribute("aria-expanded", "false");
+  }
+});
+~~~
+
+如果事件委托需要从子元素找到按钮，必须使用 closest，例如：
+~~~js
+const button = event.target.closest("button");
+~~~
+
+禁止生成以下易错写法：
+~~~js
+if (event.target !== addBtn) closePopover();
+if (e.target === button) toggle();
+~~~
+
 对于 React/Vue 输出：
 - 使用 TypeScript；
 - 组件结构应清晰；
@@ -206,6 +246,14 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
   defaultFormat: "html",
   pickerMode: "single",
   captureParts: ["screenshot", "html"],
+  hiddenCapture: {
+    revealTimeoutMs: 600,
+    triggerIntervalMs: 100,
+    actionStrategy: "first-match",
+    recursive: false,
+    maxDepth: 1,
+    hoverRevealTriggers: true,
+  },
 };
 
 export const DEFAULT_SETTINGS: Settings = {
