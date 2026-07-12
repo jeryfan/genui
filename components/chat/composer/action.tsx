@@ -13,11 +13,24 @@ import {
 import { type FC, type MouseEvent } from "react";
 import { useElementSelection } from "@/hooks/use-element-selection";
 import { useSettings } from "@/components/chat/settings/context";
+import { HiddenTriggerDialog } from "./hidden-trigger-dialog";
 import { ModelPicker } from "./model-picker";
 
 export const ComposerAction: FC = () => {
   const { settings } = useSettings();
-  const { isSelecting, startSelection, cancelSelection, capturePage } = useElementSelection(
+  const {
+    isSelecting,
+    startSelection,
+    cancelSelection,
+    capturePage,
+    hiddenTriggerDialog,
+    locateHiddenTrigger,
+    removeHiddenTrigger,
+    addHiddenTrigger,
+    clearHiddenTriggers,
+    cancelHiddenTriggerCapture,
+    submitHiddenTriggerCapture,
+  } = useElementSelection(
     settings.general.pickerMode,
     settings.general.captureParts,
     settings.general.hiddenCapture,
@@ -38,7 +51,8 @@ export const ComposerAction: FC = () => {
   };
 
   return (
-    <div className="aui-composer-action-wrapper relative flex items-center justify-between">
+    <>
+      <div className="aui-composer-action-wrapper relative flex items-center justify-between">
       <div className="flex items-center gap-1">
         <ComposerAddAttachment />
         <TooltipIconButton
@@ -121,6 +135,16 @@ export const ComposerAction: FC = () => {
           </ComposerPrimitive.Cancel>
         </AuiIf>
       </div>
-    </div>
+      </div>
+      <HiddenTriggerDialog
+        dialog={hiddenTriggerDialog}
+        onLocate={locateHiddenTrigger}
+        onRemove={removeHiddenTrigger}
+        onAdd={addHiddenTrigger}
+        onClear={clearHiddenTriggers}
+        onCancel={cancelHiddenTriggerCapture}
+        onSubmit={submitHiddenTriggerCapture}
+      />
+    </>
   );
 };

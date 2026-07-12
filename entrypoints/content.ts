@@ -4,6 +4,7 @@ import type {
   ElementTreeNode,
   HiddenInteractionAction,
   HiddenInteractionSnapshot,
+  HiddenInteractionTriggerCandidate,
   PseudoElementSnapshot,
 } from '@/lib/element-picker';
 
@@ -23,6 +24,12 @@ export default defineContentScript({
     let isCapturingSelection = false;
     let pendingHiddenInteractionElement: Element | null = null;
     let pendingHiddenInteractionSelector = '';
+    let pendingHiddenInteractionCandidates: HiddenInteractionTriggerCandidate[] | undefined;
+    let manualTriggerPickTabId: number | null = null;
+    let manualTriggerPickRoot: Element | null = null;
+    let manualTriggerPickPreviousSelecting = false;
+    let manualTriggerPickPreviousViewportSelection = false;
+    let manualTriggerPickPreviousHoveredElement: Element | null = null;
     let hiddenCaptureOptions = {
       revealTimeoutMs: 600,
       triggerIntervalMs: 100,
@@ -110,14 +117,32 @@ export default defineContentScript({
       await new Promise<void>((resolve) => setTimeout(resolve, 100));
     }
 
+    function escapeCssIdentifier(value: string): string {
+      if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+        return CSS.escape(value);
+      }
+      return value.replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+    }
+
+    function getNthOfTypeSelector(element: Element): string {
+      const parent = element.parentElement;
+      if (!parent) return '';
+      const tagName = element.tagName.toLowerCase();
+      const siblings = Array.from(parent.children).filter(
+        (child) => child.tagName.toLowerCase() === tagName,
+      );
+      if (siblings.length <= 1) return '';
+      return `:nth-of-type(${siblings.indexOf(element) + 1})`;
+    }
+
     function getSelectorPath(element: Element): string {
       const path: string[] = [];
       let current: Element | null = element;
 
-      while (current && current !== document.body) {
+      while (current) {
         let selector = current.tagName.toLowerCase();
         if (current.id) {
-          selector += `#${current.id}`;
+          selector += `#${escapeCssIdentifier(current.id)}`;
           path.unshift(selector);
           break;
         }
@@ -125,9 +150,11 @@ export default defineContentScript({
           .filter((c) => !c.startsWith('aui-'))
           .slice(0, 2);
         if (classes.length > 0) {
-          selector += `.${classes.join('.')}`;
+          selector += `.${classes.map(escapeCssIdentifier).join('.')}`;
         }
+        selector += getNthOfTypeSelector(current);
         path.unshift(selector);
+        if (current === document.body) break;
         current = current.parentElement;
       }
 
@@ -417,6 +444,85 @@ export default defineContentScript({
       const style = window.getComputedStyle(element);
       const rect = element.getBoundingClientRect();
       return !isHidden(style) && rect.width > 0 && rect.height > 0;
+    }
+
+    function resolveElementBySelector(selector: string): Element | null {
+      try {
+        return document.querySelector(selector);
+      } catch {
+        return null;
+      }
+    }
+
+    function isElementInsideRoot(element: Element, root: Element | null): boolean {
+      return !root || element === root || root.contains(element);
+    }
+
+    function highlightElement(element: Element) {
+      const previousOutline = element instanceof HTMLElement ? element.style.outline : '';
+      const previousOutlineOffset = element instanceof HTMLElement ? element.style.outlineOffset : '';
+      element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+      if (!(element instanceof HTMLElement)) return;
+
+      element.style.outline = '3px solid #3b82f6';
+      element.style.outlineOffset = '3px';
+      window.setTimeout(() => {
+        element.style.outline = previousOutline;
+        element.style.outlineOffset = previousOutlineOffset;
+      }, 1200);
+    }
+
+    function toTriggerCandidate(element: Element, source: HiddenInteractionTriggerCandidate['source']): HiddenInteractionTriggerCandidate {
+      const rect = element.getBoundingClientRect();
+      const selector = getSelectorPath(element);
+      return {
+        id: `${source}:${selector}`,
+        selector,
+        text: getTriggerText(element),
+        tagName: element.tagName.toLowerCase(),
+        role: element.getAttribute('role') ?? undefined,
+        actions: getTriggerActions(element),
+        source,
+        rect: rectToSnapshot(rect),
+      };
+    }
+
+    function getTriggerCandidateKey(candidate: Pick<HiddenInteractionTriggerCandidate, 'selector' | 'text' | 'tagName' | 'source'>): string {
+      return [candidate.source, candidate.selector].join('|');
+    }
+
+    function uniqueTriggerCandidates(candidates: HiddenInteractionTriggerCandidate[]): HiddenInteractionTriggerCandidate[] {
+      const seen = new Set<string>();
+      const unique: HiddenInteractionTriggerCandidate[] = [];
+      for (const candidate of candidates) {
+        const key = getTriggerCandidateKey(candidate);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        unique.push(candidate);
+      }
+      return unique;
+    }
+
+    function getElementsFromCandidates(candidates: HiddenInteractionTriggerCandidate[]): Element[] {
+      const elements: Element[] = [];
+      const seen = new WeakSet<Element>();
+
+      for (const candidate of candidates) {
+        const element = resolveElementBySelector(candidate.selector);
+        if (!element || seen.has(element)) continue;
+        if (!isElementInsideRoot(element, pendingHiddenInteractionElement)) continue;
+        if (!isVisibleElement(element) || isDangerousTrigger(element)) continue;
+        seen.add(element);
+        elements.push(element);
+      }
+
+      return elements;
+    }
+
+    function getTriggerCandidates(root: Element): HiddenInteractionTriggerCandidate[] {
+      return uniqueTriggerCandidates(
+        findInteractionTriggers(root, 0).map((element) => toTriggerCandidate(element, 'auto')),
+      );
     }
 
     function getTriggerText(element: Element): string {
@@ -1146,8 +1252,9 @@ export default defineContentScript({
       seen = new Set<string>(),
       seenRevealedSignatures = new Set<string>(),
       seenTriggerActionSignatures = new Set<string>(),
+      providedTriggers?: Element[],
     ): Promise<HiddenInteractionSnapshot[]> {
-      const triggers = findInteractionTriggers(root, depth);
+      const triggers = providedTriggers ?? findInteractionTriggers(root, depth);
       const snapshots = await exploreTriggers(
         triggers,
         depth,
@@ -1194,6 +1301,7 @@ export default defineContentScript({
         styles: applyStyleUrlResolution(getStyleMap(computedStyle, element.tagName)),
         html: resolveHtmlUrls(element.outerHTML),
         tree: extractElementTree(element),
+        hiddenInteractionCandidates: options.includeHidden ? getTriggerCandidates(element) : undefined,
         hasPendingHiddenInteractions: options.includeHidden || undefined,
       };
 
@@ -1202,9 +1310,10 @@ export default defineContentScript({
 
     async function extractHiddenInteractionData(
       element: Element,
+      triggers?: Element[],
     ): Promise<HiddenInteractionSnapshot[]> {
       try {
-        return await exploreHiddenInteractions(element);
+        return await exploreHiddenInteractions(element, 0, undefined, undefined, undefined, undefined, triggers);
       } catch (error) {
         console.error('[genui] hidden interaction exploration failed:', error);
         return [];
@@ -1289,7 +1398,7 @@ export default defineContentScript({
     }
 
     function handleMouseMove(e: MouseEvent) {
-      if (!isSelecting) return;
+      if (!isSelecting || manualTriggerPickRoot) return;
       isViewportSelection = e.shiftKey;
 
       if (isViewportSelection) {
@@ -1370,7 +1479,9 @@ export default defineContentScript({
       isCapturingSelection = true;
 
       try {
-        const hiddenInteractions = await extractHiddenInteractionData(target);
+        const triggers = pendingHiddenInteractionCandidates ? getElementsFromCandidates(pendingHiddenInteractionCandidates) : undefined;
+        const hiddenInteractions = await extractHiddenInteractionData(target, triggers);
+        pendingHiddenInteractionCandidates = undefined;
         browser.runtime.sendMessage({
           type: 'ELEMENT_HIDDEN_INTERACTIONS_SELECTED',
           tabId: hiddenCaptureTabId ?? undefined,
@@ -1382,8 +1493,110 @@ export default defineContentScript({
       }
     }
 
+    function startManualTriggerPick(tabId?: number) {
+      if (!pendingHiddenInteractionElement || manualTriggerPickRoot) return;
+
+      manualTriggerPickTabId = tabId ?? selectionTabId;
+      manualTriggerPickRoot = pendingHiddenInteractionElement;
+      manualTriggerPickPreviousSelecting = isSelecting;
+      manualTriggerPickPreviousViewportSelection = isViewportSelection;
+      manualTriggerPickPreviousHoveredElement = lastHoveredElement;
+      document.removeEventListener('mousemove', handleMouseMove, true);
+      document.removeEventListener('click', handleSelectionEvent, true);
+      document.removeEventListener('contextmenu', handleSelectionEvent, true);
+      document.removeEventListener('keydown', handleKeyDown, true);
+      document.removeEventListener('keyup', handleKeyUp, true);
+      isSelecting = true;
+      isViewportSelection = false;
+      lastHoveredElement = null;
+      createOverlay();
+      document.addEventListener('mousemove', handleManualTriggerPickMouseMove, true);
+      document.addEventListener('click', handleManualTriggerPickSelection, true);
+      document.addEventListener('contextmenu', handleManualTriggerPickSelection, true);
+      document.addEventListener('keydown', handleManualTriggerPickKeyDown, true);
+      document.body.style.cursor = 'crosshair';
+    }
+
+    function stopManualTriggerPick(restorePreviousSelection = true, notify = false) {
+      const stoppedTabId = manualTriggerPickTabId;
+      document.removeEventListener('mousemove', handleManualTriggerPickMouseMove, true);
+      document.removeEventListener('click', handleManualTriggerPickSelection, true);
+      document.removeEventListener('contextmenu', handleManualTriggerPickSelection, true);
+      document.removeEventListener('keydown', handleManualTriggerPickKeyDown, true);
+      isSelecting = restorePreviousSelection ? manualTriggerPickPreviousSelecting : false;
+      isViewportSelection = restorePreviousSelection ? manualTriggerPickPreviousViewportSelection : false;
+      lastHoveredElement = restorePreviousSelection ? manualTriggerPickPreviousHoveredElement : null;
+      manualTriggerPickRoot = null;
+      manualTriggerPickTabId = null;
+      document.body.style.cursor = isSelecting ? 'crosshair' : '';
+      removeOverlay();
+      if (isSelecting) {
+        createOverlay();
+        document.addEventListener('mousemove', handleMouseMove, true);
+        document.addEventListener('click', handleSelectionEvent, true);
+        document.addEventListener('contextmenu', handleSelectionEvent, true);
+        document.addEventListener('keydown', handleKeyDown, true);
+        document.addEventListener('keyup', handleKeyUp, true);
+        restoreOverlayForSelection();
+      }
+      if (notify) {
+        browser.runtime.sendMessage({
+          type: 'ELEMENT_HIDDEN_INTERACTION_TRIGGER_PICK_STOPPED',
+          tabId: stoppedTabId ?? undefined,
+        });
+      }
+    }
+
+    function handleManualTriggerPickMouseMove(e: MouseEvent) {
+      if (!manualTriggerPickRoot) return;
+      const element = document.elementFromPoint(e.clientX, e.clientY);
+      if (!element || element === overlay || overlay?.contains(element)) return;
+      const selectable = getSelectableElement(element);
+      if (!isElementInsideRoot(selectable, manualTriggerPickRoot)) {
+        updateOverlay(selectable);
+        return;
+      }
+      lastHoveredElement = selectable;
+      updateOverlay(selectable);
+    }
+
+    function pickManualTriggerElement(element: Element | null) {
+      if (!manualTriggerPickRoot || !element) return;
+      const selectable = getSelectableElement(element);
+      if (!isElementInsideRoot(selectable, manualTriggerPickRoot)) return;
+      const candidate = toTriggerCandidate(selectable, 'manual');
+      browser.runtime.sendMessage({
+        type: 'ELEMENT_HIDDEN_INTERACTION_TRIGGER_PICKED',
+        tabId: manualTriggerPickTabId ?? undefined,
+        candidate,
+      });
+      lastHoveredElement = selectable;
+      updateOverlay(selectable);
+    }
+
+    async function handleManualTriggerPickSelection(e: MouseEvent) {
+      if (!manualTriggerPickRoot) return;
+      e.preventDefault();
+      e.stopPropagation();
+      pickManualTriggerElement(document.elementFromPoint(e.clientX, e.clientY));
+    }
+
+    function handleManualTriggerPickKeyDown(e: KeyboardEvent) {
+      if (!manualTriggerPickRoot) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        stopManualTriggerPick(true, true);
+        return;
+      }
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      e.stopPropagation();
+      pickManualTriggerElement(lastHoveredElement);
+    }
+
     async function handleSelectionEvent(e: MouseEvent) {
-      if (!isSelecting) return;
+      if (!isSelecting || manualTriggerPickRoot) return;
       if (isCapturingSelection) {
         e.preventDefault();
         return;
@@ -1399,7 +1612,7 @@ export default defineContentScript({
     }
 
     async function handleEnterKey(e: KeyboardEvent) {
-      if (!isSelecting) return;
+      if (!isSelecting || manualTriggerPickRoot) return;
       e.preventDefault();
       e.stopPropagation();
 
@@ -1410,6 +1623,7 @@ export default defineContentScript({
 
     function handleKeyDown(e: KeyboardEvent) {
       if (isCapturingSelection) return;
+      if (manualTriggerPickRoot) return;
 
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -1431,6 +1645,7 @@ export default defineContentScript({
     }
 
     function handleKeyUp(e: KeyboardEvent) {
+      if (manualTriggerPickRoot) return;
       if (e.key !== 'Shift') return;
       isViewportSelection = false;
       if (lastHoveredElement) {
@@ -1451,6 +1666,7 @@ export default defineContentScript({
     }
 
     function stopSelectionChrome() {
+      if (manualTriggerPickRoot) stopManualTriggerPick(false);
       isSelecting = false;
       isViewportSelection = false;
       lastHoveredElement = null;
@@ -1471,7 +1687,7 @@ export default defineContentScript({
       document.body.style.cursor = '';
     }
 
-    browser.runtime.onMessage.addListener((message: { type: string; tabId?: number; selectViewport?: boolean; includeHidden?: boolean; hiddenCapture?: typeof hiddenCaptureOptions }) => {
+    browser.runtime.onMessage.addListener((message: { type: string; tabId?: number; selectViewport?: boolean; includeHidden?: boolean; hiddenCapture?: typeof hiddenCaptureOptions; candidates?: HiddenInteractionTriggerCandidate[]; selector?: string }) => {
       if (message.type === 'PING') {
         return;
       }
@@ -1485,11 +1701,36 @@ export default defineContentScript({
         restoreOverlayForSelection();
         return;
       }
+      if (message.type === 'GET_HIDDEN_INTERACTION_TRIGGER_CANDIDATES') {
+        return pendingHiddenInteractionElement ? getTriggerCandidates(pendingHiddenInteractionElement) : [];
+      }
+      if (message.type === 'LOCATE_HIDDEN_INTERACTION_TRIGGER') {
+        const element = message.selector ? resolveElementBySelector(message.selector) : null;
+        if (element) {
+          highlightElement(element);
+        } else {
+          console.warn('[genui] trigger selector not found:', message.selector);
+        }
+        return;
+      }
+      if (message.type === 'START_HIDDEN_INTERACTION_TRIGGER_PICK') {
+        startManualTriggerPick(message.tabId);
+        return;
+      }
+      if (message.type === 'SELECT_HIGHLIGHTED_HIDDEN_INTERACTION_TRIGGER') {
+        pickManualTriggerElement(lastHoveredElement);
+        return;
+      }
+      if (message.type === 'STOP_HIDDEN_INTERACTION_TRIGGER_PICK') {
+        stopManualTriggerPick(true, true);
+        return;
+      }
       if (message.type === 'CAPTURE_HIDDEN_INTERACTIONS') {
         hiddenCaptureOptions = {
           ...hiddenCaptureOptions,
           ...(message.hiddenCapture ?? {}),
         };
+        pendingHiddenInteractionCandidates = message.candidates;
         capturePendingHiddenInteractions(message.tabId);
         return;
       }
@@ -1521,7 +1762,7 @@ export default defineContentScript({
     browser.runtime.onConnect.addListener((port) => {
       if (port.name !== 'element-selection') return;
 
-      port.onMessage.addListener((message: { type: string; tabId?: number; selectViewport?: boolean; includeHidden?: boolean; hiddenCapture?: typeof hiddenCaptureOptions }) => {
+      port.onMessage.addListener((message: { type: string; tabId?: number; selectViewport?: boolean; includeHidden?: boolean; hiddenCapture?: typeof hiddenCaptureOptions; candidates?: HiddenInteractionTriggerCandidate[]; selector?: string }) => {
         if (message.type === 'START_ELEMENT_SELECTION') {
           selectionTabId = message.tabId ?? null;
           includeHiddenElements = message.includeHidden ?? false;
@@ -1536,11 +1777,27 @@ export default defineContentScript({
           restoreOverlayForSelection();
         } else if (message.type === 'STOP_ELEMENT_SELECTION_CHROME') {
           stopSelectionChrome();
+        } else if (message.type === 'GET_HIDDEN_INTERACTION_TRIGGER_CANDIDATES') {
+          return pendingHiddenInteractionElement ? getTriggerCandidates(pendingHiddenInteractionElement) : [];
+        } else if (message.type === 'LOCATE_HIDDEN_INTERACTION_TRIGGER') {
+          const element = message.selector ? resolveElementBySelector(message.selector) : null;
+          if (element) {
+            highlightElement(element);
+          } else {
+            console.warn('[genui] trigger selector not found:', message.selector);
+          }
+        } else if (message.type === 'START_HIDDEN_INTERACTION_TRIGGER_PICK') {
+          startManualTriggerPick(message.tabId);
+        } else if (message.type === 'SELECT_HIGHLIGHTED_HIDDEN_INTERACTION_TRIGGER') {
+          pickManualTriggerElement(lastHoveredElement);
+        } else if (message.type === 'STOP_HIDDEN_INTERACTION_TRIGGER_PICK') {
+          stopManualTriggerPick(true, true);
         } else if (message.type === 'CAPTURE_HIDDEN_INTERACTIONS') {
           hiddenCaptureOptions = {
             ...hiddenCaptureOptions,
             ...(message.hiddenCapture ?? {}),
           };
+          pendingHiddenInteractionCandidates = message.candidates;
           capturePendingHiddenInteractions(message.tabId);
         } else if (message.type === 'SELECT_HIGHLIGHTED_ELEMENT') {
           includeHiddenElements = message.includeHidden ?? includeHiddenElements;

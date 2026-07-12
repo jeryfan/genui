@@ -1,6 +1,6 @@
 "use client";
 
-import { Code2Icon } from "lucide-react";
+import { EyeIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { type FC } from "react";
 import { ExportButton } from "./export-button";
@@ -24,11 +24,12 @@ export const Header: FC = () => {
         <Button
           variant="ghost"
           size="sm"
-          className="gap-1.5"
+          className="size-8 rounded-full"
           onClick={handleOpenHtmlPreview}
+          aria-label="Open HTML preview"
+          title="Open HTML preview"
         >
-          <Code2Icon className="size-4" />
-          HTML Preview
+          <EyeIcon className="size-4" />
         </Button>
         <ExportButton />
         <SyncSettingsButton />

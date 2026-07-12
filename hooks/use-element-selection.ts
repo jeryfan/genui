@@ -9,6 +9,7 @@ import {
   cropScreenshot,
   type ElementPickerMessage,
   type ElementSnapshot,
+  type HiddenInteractionTriggerCandidate,
 } from "@/lib/element-picker";
 
 import {
@@ -27,6 +28,13 @@ export function useElementSelection(
 ) {
   const runtime = useComposerRuntime();
   const [isSelecting, setIsSelecting] = useState(false);
+  const [hiddenTriggerDialog, setHiddenTriggerDialog] = useState<{
+    tabId: number;
+    selector: string;
+    candidates: HiddenInteractionTriggerCandidate[];
+    loading: boolean;
+    picking: boolean;
+  } | null>(null);
   const selectionTabIdRef = useRef<number | null>(null);
   const hiddenCaptureTabIdRef = useRef<number | null>(null);
   const pendingHiddenFinishRef = useRef<(() => void) | null>(null);
@@ -231,29 +239,21 @@ export function useElementSelection(
         }
 
         if (shouldCaptureHiddenInteractions && tabId != null) {
-          hiddenCaptureTabIdRef.current = tabId;
-          pendingHiddenFinishRef.current = finishSelection;
-          // The selected element's base attachments are already added; remove only
-          // the page picker chrome before opening popovers. Keep side panel in the
-          // selecting/cancel state until the hidden attachment is done.
+          const candidates = data.hiddenInteractionCandidates;
           browser.tabs
             .sendMessage(tabId, { type: "STOP_ELEMENT_SELECTION_CHROME" })
             .catch(() => {
-              // The target tab may have navigated; still try hidden capture below.
+              // The target tab may have navigated; keep the confirmation dialog usable.
             });
-          browser.tabs
-            .sendMessage(tabId, {
-              type: "CAPTURE_HIDDEN_INTERACTIONS",
-              tabId,
-              hiddenCapture,
-            })
-            .catch(() => {
-              hiddenCaptureTabIdRef.current = null;
-              pendingHiddenFinishRef.current?.();
-              pendingHiddenFinishRef.current = null;
-              selectionTabIdRef.current = null;
-              setIsSelecting(false);
-            });
+          hiddenCaptureTabIdRef.current = tabId;
+          pendingHiddenFinishRef.current = finishSelection;
+          setHiddenTriggerDialog({
+            tabId,
+            selector: data.selector,
+            candidates: candidates ?? [],
+            loading: false,
+            picking: false,
+          });
           return;
         }
 
@@ -265,6 +265,96 @@ export function useElementSelection(
     },
     [includeScreenshot, markdownOptions, runtime, mode, restoreSelectionOverlayInTab, stopSelectionInTab, hiddenCapture],
   );
+
+  const locateHiddenTrigger = useCallback((candidate: HiddenInteractionTriggerCandidate) => {
+    const tabId = hiddenTriggerDialog?.tabId;
+    if (tabId == null) return;
+    browser.tabs
+      .sendMessage(tabId, {
+        type: "LOCATE_HIDDEN_INTERACTION_TRIGGER",
+        selector: candidate.selector,
+      })
+      .catch(() => {
+        // The target tab may have navigated or the content script may be gone.
+      });
+  }, [hiddenTriggerDialog?.tabId]);
+
+  const removeHiddenTrigger = useCallback((candidate: HiddenInteractionTriggerCandidate) => {
+    setHiddenTriggerDialog((dialog) => {
+      if (!dialog) return dialog;
+      return {
+        ...dialog,
+        candidates: dialog.candidates.filter((item) => item.id !== candidate.id),
+      };
+    });
+  }, []);
+
+  const addHiddenTrigger = useCallback(() => {
+    const tabId = hiddenTriggerDialog?.tabId;
+    if (tabId == null) return;
+    setHiddenTriggerDialog((dialog) => dialog ? { ...dialog, picking: true } : dialog);
+    browser.tabs
+      .sendMessage(tabId, {
+        type: "START_HIDDEN_INTERACTION_TRIGGER_PICK",
+        tabId,
+      })
+      .catch(() => {
+        // The target tab may have navigated or the content script may be gone.
+      });
+  }, [hiddenTriggerDialog?.tabId]);
+
+  const clearHiddenTriggers = useCallback(() => {
+    setHiddenTriggerDialog((dialog) => {
+      if (!dialog) return dialog;
+      return {
+        ...dialog,
+        candidates: [],
+      };
+    });
+  }, []);
+
+  const stopHiddenTriggerPick = useCallback((tabId: number | null | undefined) => {
+    if (tabId == null) return;
+    browser.tabs
+      .sendMessage(tabId, { type: "STOP_HIDDEN_INTERACTION_TRIGGER_PICK" })
+      .catch(() => {
+        // The target tab may have navigated or the content script may be gone.
+      });
+  }, []);
+
+  const cancelHiddenTriggerCapture = useCallback(() => {
+    stopHiddenTriggerPick(hiddenTriggerDialog?.tabId);
+    pendingHiddenFinishRef.current?.();
+    pendingHiddenFinishRef.current = null;
+    hiddenCaptureTabIdRef.current = null;
+    setHiddenTriggerDialog(null);
+    selectionTabIdRef.current = null;
+    setIsSelecting(false);
+  }, [hiddenTriggerDialog?.tabId, stopHiddenTriggerPick]);
+
+  const submitHiddenTriggerCapture = useCallback(() => {
+    const dialog = hiddenTriggerDialog;
+    if (!dialog) return;
+
+    const tabId = dialog.tabId;
+    stopHiddenTriggerPick(tabId);
+    setHiddenTriggerDialog({ ...dialog, loading: true, picking: false });
+    browser.tabs
+      .sendMessage(tabId, {
+        type: "CAPTURE_HIDDEN_INTERACTIONS",
+        tabId,
+        hiddenCapture,
+        candidates: dialog.candidates,
+      })
+      .catch(() => {
+        pendingHiddenFinishRef.current?.();
+        pendingHiddenFinishRef.current = null;
+        hiddenCaptureTabIdRef.current = null;
+        setHiddenTriggerDialog(null);
+        selectionTabIdRef.current = null;
+        setIsSelecting(false);
+      });
+  }, [hiddenTriggerDialog, hiddenCapture, stopHiddenTriggerPick]);
 
   const handleHiddenInteractionsSelected = useCallback(
     async (selector: string, message: Extract<ElementPickerMessage, { type: "ELEMENT_HIDDEN_INTERACTIONS_SELECTED" }>) => {
@@ -284,6 +374,7 @@ export function useElementSelection(
         pendingHiddenFinishRef.current?.();
         pendingHiddenFinishRef.current = null;
         hiddenCaptureTabIdRef.current = null;
+        setHiddenTriggerDialog(null);
       }
     },
     [runtime, captureDetail],
@@ -302,6 +393,25 @@ export function useElementSelection(
       ) {
         handleHiddenInteractionsSelected(message.selector, message);
       } else if (
+        message.type === "ELEMENT_HIDDEN_INTERACTION_TRIGGER_PICKED" &&
+        message.tabId === hiddenTriggerDialog?.tabId
+      ) {
+        setHiddenTriggerDialog((dialog) => {
+          if (!dialog) return dialog;
+          const exists = dialog.candidates.some((candidate) => candidate.id === message.candidate.id);
+          if (exists) return dialog;
+          return {
+            ...dialog,
+            candidates: [...dialog.candidates, message.candidate],
+            picking: true,
+          };
+        });
+      } else if (
+        message.type === "ELEMENT_HIDDEN_INTERACTION_TRIGGER_PICK_STOPPED" &&
+        message.tabId === hiddenTriggerDialog?.tabId
+      ) {
+        setHiddenTriggerDialog((dialog) => dialog ? { ...dialog, picking: false } : dialog);
+      } else if (
         message.type === "ELEMENT_SELECTION_CANCELLED" &&
         message.tabId === selectionTabIdRef.current
       ) {
@@ -314,7 +424,7 @@ export function useElementSelection(
     return () => {
       browser.runtime.onMessage.removeListener(listener);
     };
-  }, [handleElementSelected, handleHiddenInteractionsSelected]);
+  }, [handleElementSelected, handleHiddenInteractionsSelected, hiddenTriggerDialog?.tabId]);
 
   useEffect(() => {
     return () => {
@@ -323,8 +433,41 @@ export function useElementSelection(
     };
   }, [stopSelectionInTab]);
 
+  const pickHighlightedHiddenTrigger = useCallback(() => {
+    const tabId = hiddenTriggerDialog?.tabId;
+    if (tabId == null) return;
+    browser.tabs
+      .sendMessage(tabId, { type: "SELECT_HIGHLIGHTED_HIDDEN_INTERACTION_TRIGGER" })
+      .catch(() => {
+        // The target tab may have navigated or the content script may be gone.
+      });
+  }, [hiddenTriggerDialog?.tabId]);
+
   useEffect(() => {
-    if (!isSelecting) return;
+    if (!hiddenTriggerDialog) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" && event.key !== "Escape") return;
+      if (!hiddenTriggerDialog.picking) return;
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (event.key === "Enter") {
+        pickHighlightedHiddenTrigger();
+        return;
+      }
+
+      stopHiddenTriggerPick(hiddenTriggerDialog.tabId);
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [hiddenTriggerDialog, pickHighlightedHiddenTrigger, stopHiddenTriggerPick]);
+
+  useEffect(() => {
+    if (!isSelecting || hiddenTriggerDialog) return;
 
     const handleKeyDown = async (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -364,12 +507,19 @@ export function useElementSelection(
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [isSelecting, cancelSelection, includeHidden, hiddenCapture]);
+  }, [isSelecting, hiddenTriggerDialog, cancelSelection, includeHidden, hiddenCapture]);
 
   return {
     isSelecting,
     startSelection,
     cancelSelection,
     capturePage,
+    hiddenTriggerDialog,
+    locateHiddenTrigger,
+    removeHiddenTrigger,
+    addHiddenTrigger,
+    clearHiddenTriggers,
+    cancelHiddenTriggerCapture,
+    submitHiddenTriggerCapture,
   };
 }

@@ -28,6 +28,17 @@ export type ElementTreeNode = {
 
 export type HiddenInteractionAction = "click" | "hover" | "focus";
 
+export type HiddenInteractionTriggerCandidate = {
+  id: string;
+  selector: string;
+  text: string;
+  tagName: string;
+  role?: string;
+  actions: HiddenInteractionAction[];
+  source: "auto" | "manual";
+  rect: ElementRect;
+};
+
 export type HiddenInteractionSnapshot = {
   triggerSelector: string;
   triggerText: string;
@@ -59,6 +70,7 @@ export type ElementSnapshot = {
   html: string;
   tree?: ElementTreeNode;
   hiddenInteractions?: HiddenInteractionSnapshot[];
+  hiddenInteractionCandidates?: HiddenInteractionTriggerCandidate[];
   hasPendingHiddenInteractions?: boolean;
 };
 
@@ -75,6 +87,17 @@ export type ElementHiddenInteractionsSelectedMessage = {
   data: HiddenInteractionSnapshot[];
 };
 
+export type ElementHiddenInteractionTriggerPickedMessage = {
+  type: "ELEMENT_HIDDEN_INTERACTION_TRIGGER_PICKED";
+  tabId?: number;
+  candidate: HiddenInteractionTriggerCandidate;
+};
+
+export type ElementHiddenInteractionTriggerPickStoppedMessage = {
+  type: "ELEMENT_HIDDEN_INTERACTION_TRIGGER_PICK_STOPPED";
+  tabId?: number;
+};
+
 export type ElementSelectionCancelledMessage = {
   type: "ELEMENT_SELECTION_CANCELLED";
   tabId?: number;
@@ -83,6 +106,8 @@ export type ElementSelectionCancelledMessage = {
 export type ElementPickerMessage =
   | ElementSelectedMessage
   | ElementHiddenInteractionsSelectedMessage
+  | ElementHiddenInteractionTriggerPickedMessage
+  | ElementHiddenInteractionTriggerPickStoppedMessage
   | ElementSelectionCancelledMessage;
 
 export type CaptureDetail = "compact" | "balanced" | "full";
