@@ -590,8 +590,7 @@ export default defineContentScript({
         .filter((element) => {
           if (!isVisibleElement(element) || isDangerousTrigger(element)) return false;
           return depth === 0 || isRecursiveTrigger(element);
-        })
-        .slice(0, depth === 0 ? 20 : 10);
+        });
     }
 
     function getZIndex(style: CSSStyleDeclaration): number {
@@ -1376,7 +1375,7 @@ export default defineContentScript({
       };
     }
 
-    function extractPageData() {
+    function extractPageData(options: { includeHidden?: boolean } = {}) {
       const root = document.body ?? document.documentElement;
       const computedStyle = window.getComputedStyle(root);
 
@@ -1394,6 +1393,8 @@ export default defineContentScript({
         styles: applyStyleUrlResolution(getStyleMap(computedStyle, root.tagName)),
         html: resolveHtmlUrls(root.outerHTML),
         tree: extractElementTree(root),
+        hiddenInteractionCandidates: options.includeHidden ? getTriggerCandidates(root) : undefined,
+        hasPendingHiddenInteractions: options.includeHidden || undefined,
       };
     }
 
@@ -1435,11 +1436,18 @@ export default defineContentScript({
       try {
         if (selectingViewport) {
           console.log('[genui] viewport selected');
+          const data = extractPageData({
+            includeHidden: includeHiddenElements,
+          });
           browser.runtime.sendMessage({
             type: 'ELEMENT_SELECTED',
             tabId: selectionTabId ?? undefined,
-            data: extractPageData(),
+            data,
           });
+          if (includeHiddenElements) {
+            pendingHiddenInteractionElement = document.body ?? document.documentElement;
+            pendingHiddenInteractionSelector = data.selector;
+          }
           return;
         }
 

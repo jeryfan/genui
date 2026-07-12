@@ -364,4 +364,28 @@ assert.match(
   "forced hover reveal styles must be restored after capture",
 );
 
+assert.match(
+  contentScript,
+  /function extractPageData\(options: \{ includeHidden\?: boolean \} = \{\}\)/,
+  "page capture must accept hidden capture options for Shift full-page selection",
+);
+
+assert.match(
+  contentScript,
+  /pendingHiddenInteractionElement = document\.body \?\? document\.documentElement;[\s\S]*pendingHiddenInteractionSelector = data\.selector;/,
+  "Shift full-page selection must keep a pending root for confirmed hidden trigger capture",
+);
+
+assert.match(
+  contentScript,
+  /const data = extractPageData\(\{[\s\S]*includeHidden: includeHiddenElements,[\s\S]*\}\);[\s\S]*type: 'ELEMENT_SELECTED'/,
+  "Shift full-page selection must return hidden trigger candidates when hidden capture is enabled",
+);
+
+assert.doesNotMatch(
+  contentScript,
+  /slice\(0, depth === 0 \? 20 : 10\)/,
+  "automatic hidden trigger candidates must not be capped before showing the confirmation list",
+);
+
 console.log("element hidden interaction tests passed");
