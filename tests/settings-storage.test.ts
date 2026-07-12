@@ -14,6 +14,7 @@ const nextSettings = normalizeSettings({
 
 assert.equal(STORAGE_KEY, "genui-settings");
 assert.equal(nextSettings.general.defaultFormat, "react");
+assert.equal(nextSettings.general.captureDetail, DEFAULT_SETTINGS.general.captureDetail);
 assert.equal(nextSettings.general.pickerMode, DEFAULT_SETTINGS.general.pickerMode);
 assert.equal(nextSettings.general.hiddenCapture.revealTimeoutMs, 600);
 assert.equal(nextSettings.general.hiddenCapture.triggerIntervalMs, 100);

@@ -23,6 +23,7 @@ export function useElementSelection(
   mode: "continuous" | "single" = "continuous",
   captureParts: CapturePart[] = DEFAULT_CAPTURE_PARTS,
   hiddenCapture: GeneralSettings["hiddenCapture"] = DEFAULT_GENERAL_SETTINGS.hiddenCapture,
+  captureDetail: GeneralSettings["captureDetail"] = DEFAULT_GENERAL_SETTINGS.captureDetail,
 ) {
   const runtime = useComposerRuntime();
   const [isSelecting, setIsSelecting] = useState(false);
@@ -37,8 +38,9 @@ export function useElementSelection(
     () => ({
       includeHtml: captureParts.includes("html"),
       includeTree: captureParts.includes("tree"),
+      detail: captureDetail,
     }),
-    [captureParts],
+    [captureParts, captureDetail],
   );
 
   const closeSelectionPort = useCallback(() => {
@@ -269,7 +271,11 @@ export function useElementSelection(
       try {
         if (message.data.length > 0) {
           await runtime.addAttachment(
-            createHiddenInteractionsMarkdownFile(selector, message.data),
+            createHiddenInteractionsMarkdownFile(
+              selector,
+              message.data,
+              captureDetail,
+            ),
           );
         }
       } catch (error) {
@@ -280,7 +286,7 @@ export function useElementSelection(
         hiddenCaptureTabIdRef.current = null;
       }
     },
-    [runtime],
+    [runtime, captureDetail],
   );
 
   useEffect(() => {

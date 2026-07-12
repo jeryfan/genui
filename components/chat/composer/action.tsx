@@ -21,6 +21,7 @@ export const ComposerAction: FC = () => {
     settings.general.pickerMode,
     settings.general.captureParts,
     settings.general.hiddenCapture,
+    settings.general.captureDetail,
   );
 
   const handleSelectionClick = (event: MouseEvent<HTMLButtonElement>) => {

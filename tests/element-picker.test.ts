@@ -12,6 +12,10 @@ const snapshot = {
   styles: {
     display: "flex",
     "background-color": "rgb(255, 255, 255)",
+    "padding-top": "8px",
+    "padding-right": "8px",
+    "padding-bottom": "8px",
+    "padding-left": "8px",
   },
   html: '<div class="card"><h2>Title</h2><button>Open</button></div>',
   hiddenInteractions: [
@@ -72,7 +76,41 @@ const snapshot = {
         rect: { x: 16, y: 64, width: 80, height: 36, top: 64, left: 16 },
         attributes: {},
         text: "Open",
-        styles: { "border-radius": "999px" },
+        styles: {
+          "border-top-left-radius": "999px",
+          "border-top-right-radius": "999px",
+          "border-bottom-right-radius": "999px",
+          "border-bottom-left-radius": "999px",
+        },
+        children: [
+          {
+            tagName: "svg",
+            selector: "div.card > button > svg",
+            rect: { x: 20, y: 72, width: 16, height: 16, top: 72, left: 20 },
+            attributes: { "aria-hidden": "true" },
+            text: "",
+            styles: { display: "block" },
+            children: [
+              {
+                tagName: "path",
+                selector: "div.card > button > svg > path",
+                rect: { x: 20, y: 72, width: 16, height: 16, top: 72, left: 20 },
+                attributes: { d: "M0 0h16v16H0z" },
+                text: "",
+                styles: {},
+                children: [],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        tagName: "img",
+        selector: "div.card > img",
+        rect: { x: 240, y: 16, width: 48, height: 48, top: 16, left: 240 },
+        attributes: { src: "https://example.com/avatar.png", alt: "Avatar" },
+        text: "",
+        styles: { width: "48px", height: "48px" },
         children: [],
       },
     ],
@@ -86,9 +124,17 @@ assert.match(markdown, /## Snapshot Type/);
 assert.match(markdown, /viewport/);
 assert.match(markdown, /## Element Tree/);
 assert.match(markdown, /div\.card > h2/);
+assert.match(markdown, /padding: 8px;/);
+assert.doesNotMatch(markdown, /padding-top: 8px;/);
 assert.match(markdown, /font-size: 24px;/);
 assert.match(markdown, /div\.card > button/);
+assert.match(markdown, /div\.card > button > svg/);
+assert.doesNotMatch(markdown, /div\.card > button > svg > path/);
+assert.match(markdown, /div\.card > img/);
 assert.match(markdown, /border-radius: 999px;/);
+assert.doesNotMatch(markdown, /border-top-left-radius: 999px;/);
+assert.doesNotMatch(markdown, /pointer-events: auto;/);
+assert.doesNotMatch(markdown, /transform-origin:/);
 assert.match(markdown, /## Hidden Interaction Elements/);
 assert.match(markdown, /Trigger Selector: div\.card > button\.menu-trigger/);
 assert.match(markdown, /Action: click/);
@@ -108,6 +154,13 @@ const compactMarkdown = await compactFile.text();
 
 assert.doesNotMatch(compactMarkdown, /## Element Tree/);
 assert.doesNotMatch(compactMarkdown, /## HTML/);
+
+const fullFile = createMarkdownFile(snapshot as any, { detail: "full" });
+const fullMarkdown = await fullFile.text();
+assert.match(fullMarkdown, /padding-top: 8px;/);
+assert.match(fullMarkdown, /border-top-left-radius: 999px;/);
+assert.match(fullMarkdown, /div\.card > button > svg > path/);
+assert.match(fullMarkdown, /z-index: 50;/);
 
 const hiddenFile = createHiddenInteractionsMarkdownFile(
   "div.card",

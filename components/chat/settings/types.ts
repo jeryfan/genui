@@ -22,11 +22,13 @@ export interface ModelConfig extends Model<Api> {
 }
 
 export type HiddenCaptureActionStrategy = "first-match" | "all";
+export type CaptureDetail = "compact" | "balanced" | "full";
 
 export interface GeneralSettings {
   defaultFormat: OutputFormat;
   pickerMode: PickerMode;
   captureParts: CapturePart[];
+  captureDetail: CaptureDetail;
   hiddenCapture: {
     revealTimeoutMs: number;
     triggerIntervalMs: number;
@@ -246,6 +248,7 @@ export const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
   defaultFormat: "html",
   pickerMode: "single",
   captureParts: ["screenshot", "html"],
+  captureDetail: "balanced",
   hiddenCapture: {
     revealTimeoutMs: 600,
     triggerIntervalMs: 100,
