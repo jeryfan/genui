@@ -85,6 +85,209 @@ export type ElementPickerMessage =
   | ElementHiddenInteractionsSelectedMessage
   | ElementSelectionCancelledMessage;
 
+export type CaptureDetail = "compact" | "balanced" | "full";
+
+const BALANCED_STYLE_PREFIXES = [
+  "align-",
+  "background",
+  "border",
+  "box-shadow",
+  "color",
+  "column-",
+  "display",
+  "filter",
+  "flex",
+  "font",
+  "gap",
+  "grid",
+  "height",
+  "justify-",
+  "left",
+  "letter-spacing",
+  "line-height",
+  "margin",
+  "max-",
+  "min-",
+  "object-",
+  "opacity",
+  "outline",
+  "overflow",
+  "padding",
+  "position",
+  "right",
+  "row-",
+  "text-",
+  "top",
+  "transform",
+  "transition",
+  "width",
+  "z-index",
+];
+
+const COMPACT_STYLE_PROPS = new Set([
+  "background-color",
+  "border-bottom-color",
+  "border-bottom-left-radius",
+  "border-bottom-right-radius",
+  "border-bottom-width",
+  "border-left-color",
+  "border-left-width",
+  "border-radius",
+  "border-right-color",
+  "border-right-width",
+  "border-top-color",
+  "border-top-left-radius",
+  "border-top-right-radius",
+  "border-top-width",
+  "box-shadow",
+  "color",
+  "display",
+  "font-size",
+  "font-weight",
+  "height",
+  "line-height",
+  "opacity",
+  "position",
+  "transform",
+  "width",
+  "z-index",
+]);
+
+const LOW_VALUE_TREE_TAGS = new Set(["path", "defs", "clippath", "mask"]);
+const MEDIA_TREE_TAGS = new Set(["img", "picture", "video", "canvas"]);
+const INTERACTIVE_TREE_TAGS = new Set([
+  "a",
+  "button",
+  "details",
+  "dialog",
+  "input",
+  "option",
+  "select",
+  "summary",
+  "textarea",
+]);
+
+const INTERACTIVE_ROLES = new Set([
+  "button",
+  "checkbox",
+  "combobox",
+  "dialog",
+  "link",
+  "listbox",
+  "menu",
+  "menuitem",
+  "option",
+  "radio",
+  "searchbox",
+  "slider",
+  "switch",
+  "tab",
+  "textbox",
+  "tooltip",
+]);
+
+function isLowValueStyle(prop: string, value: string): boolean {
+  if (value === "normal" || value === "none" || value === "auto") return true;
+  if (value === "visible" && prop === "visibility") return true;
+  if (value === "auto" && prop === "pointer-events") return true;
+  return (
+    prop === "block-size" ||
+    prop === "inline-size" ||
+    prop.startsWith("inset-") ||
+    prop.startsWith("border-block-") ||
+    prop.startsWith("border-inline-") ||
+    prop === "perspective-origin" ||
+    prop === "transform-origin" ||
+    prop === "unicode-bidi" ||
+    prop === "text-rendering"
+  );
+}
+
+function compactEqualSides(
+  styles: Record<string, string>,
+  shorthand: string,
+  sides: string[],
+): void {
+  if (styles[shorthand]) return;
+
+  const values = sides.map((side) => styles[side]);
+  const first = values[0];
+  if (!first || !values.every((value) => value === first)) return;
+
+  styles[shorthand] = first;
+  for (const side of sides) delete styles[side];
+}
+
+function compactEqualBorderStyles(styles: Record<string, string>): void {
+  compactEqualSides(styles, "border-color", [
+    "border-top-color",
+    "border-right-color",
+    "border-bottom-color",
+    "border-left-color",
+  ]);
+  compactEqualSides(styles, "border-width", [
+    "border-top-width",
+    "border-right-width",
+    "border-bottom-width",
+    "border-left-width",
+  ]);
+  compactEqualSides(styles, "border-radius", [
+    "border-top-left-radius",
+    "border-top-right-radius",
+    "border-bottom-right-radius",
+    "border-bottom-left-radius",
+  ]);
+}
+
+function normalizeStylesForDetail(
+  styles: Record<string, string>,
+  detail: CaptureDetail,
+): Record<string, string> {
+  if (detail === "full") return styles;
+
+  const normalized = { ...styles };
+  compactEqualSides(normalized, "margin", [
+    "margin-top",
+    "margin-right",
+    "margin-bottom",
+    "margin-left",
+  ]);
+  compactEqualSides(normalized, "padding", [
+    "padding-top",
+    "padding-right",
+    "padding-bottom",
+    "padding-left",
+  ]);
+  compactEqualBorderStyles(normalized);
+  return normalized;
+}
+
+function filterStylesForDetail(
+  styles: Record<string, string>,
+  detail: CaptureDetail,
+): Record<string, string> {
+  if (detail === "full") return styles;
+
+  const filtered: Record<string, string> = {};
+  for (const [prop, value] of Object.entries(styles)) {
+    if (isLowValueStyle(prop, value)) continue;
+
+    if (detail === "compact") {
+      if (COMPACT_STYLE_PROPS.has(prop)) filtered[prop] = value;
+      continue;
+    }
+
+    if (
+      BALANCED_STYLE_PREFIXES.some(
+        (prefix) => prop === prefix || prop.startsWith(prefix),
+      )
+    ) {
+      filtered[prop] = value;
+    }
+  }
+  return normalizeStylesForDetail(filtered, detail);
+}
+
 /**
  * Filter out computed styles that are identical to the default computed styles
  * for the same element tag. This removes browser defaults and inherited values
@@ -132,22 +335,26 @@ function formatRect(rect: ElementRect): string {
 function formatPseudoElement(
   name: "before" | "after",
   pseudo: PseudoElementSnapshot,
+  detail: CaptureDetail,
 ): string {
+  const styles = filterStylesForDetail(pseudo.styles, detail);
   return [
     `#### ::${name}`,
     pseudo.content ? `- Content: ${pseudo.content}` : "- Content: none",
-    "```css",
-    formatStyles(pseudo.styles),
-    "```",
-  ].join("\n");
+    Object.keys(styles).length > 0 ? "```css" : "",
+    Object.keys(styles).length > 0 ? formatStyles(styles) : "",
+    Object.keys(styles).length > 0 ? "```" : "",
+  ].filter(Boolean).join("\n");
 }
 
 function formatHiddenInteraction(
   interaction: HiddenInteractionSnapshot,
   index: number,
+  detail: CaptureDetail,
 ): string {
+  const styles = filterStylesForDetail(interaction.styles, detail);
   const treeContent = interaction.tree
-    ? `\n#### Revealed Element Tree\n\n${formatElementTreeNode(interaction.tree)}\n`
+    ? `\n#### Revealed Element Tree\n\n${formatElementTreeNode(interaction.tree, 0, detail)}\n`
     : "";
 
   return [
@@ -175,9 +382,9 @@ function formatHiddenInteraction(
       : "- Parent Trigger Selector: none",
     formatRect(interaction.rect),
     "#### Revealed Computed Styles",
-    "```css",
-    formatStyles(interaction.styles),
-    "```",
+    Object.keys(styles).length > 0 ? "```css" : "",
+    Object.keys(styles).length > 0 ? formatStyles(styles) : "- Styles: none",
+    Object.keys(styles).length > 0 ? "```" : "",
     treeContent,
     "#### Revealed HTML",
     "```html",
@@ -188,15 +395,62 @@ function formatHiddenInteraction(
     .join("\n\n");
 }
 
-function formatElementTreeNode(node: ElementTreeNode, depth = 0): string {
+function hasInteractiveRole(node: ElementTreeNode): boolean {
+  const role = node.attributes.role?.toLowerCase();
+  return !!role && INTERACTIVE_ROLES.has(role);
+}
+
+function hasUsefulAttributes(node: ElementTreeNode): boolean {
+  return Object.keys(node.attributes).some((name) => {
+    if (name === "class" || name === "style") return false;
+    if (name.startsWith("data-")) return false;
+    return true;
+  });
+}
+
+function isUsefulTreeNode(node: ElementTreeNode, detail: CaptureDetail): boolean {
+  if (detail === "full") return true;
+
+  const tagName = node.tagName.toLowerCase();
+  if (LOW_VALUE_TREE_TAGS.has(tagName)) return false;
+  if (MEDIA_TREE_TAGS.has(tagName)) return true;
+  if (INTERACTIVE_TREE_TAGS.has(tagName) || hasInteractiveRole(node)) return true;
+  if (node.text.trim()) return true;
+  if (hasUsefulAttributes(node)) return true;
+
+  return Object.keys(filterStylesForDetail(node.styles, detail)).length > 0;
+}
+
+function getTreeChildrenToFormat(
+  node: ElementTreeNode,
+  depth: number,
+  detail: CaptureDetail,
+): ElementTreeNode[] {
+  if (detail === "full") return node.children;
+
+  const maxDepth = detail === "compact" ? 2 : 4;
+  if (depth >= maxDepth) return [];
+
+  const maxChildren = detail === "compact" ? 8 : 20;
+  return node.children
+    .filter((child) => isUsefulTreeNode(child, detail))
+    .slice(0, maxChildren);
+}
+
+function formatElementTreeNode(
+  node: ElementTreeNode,
+  depth = 0,
+  detail: CaptureDetail = "balanced",
+): string {
   const headingLevel = Math.min(3 + depth, 6);
   const heading = `${"#".repeat(headingLevel)} ${node.selector}`;
+  const styles = filterStylesForDetail(node.styles, detail);
   const pseudo = [
-    node.pseudo?.before ? formatPseudoElement("before", node.pseudo.before) : "",
-    node.pseudo?.after ? formatPseudoElement("after", node.pseudo.after) : "",
+    node.pseudo?.before ? formatPseudoElement("before", node.pseudo.before, detail) : "",
+    node.pseudo?.after ? formatPseudoElement("after", node.pseudo.after, detail) : "",
   ].filter(Boolean);
-  const children = node.children.map((child) =>
-    formatElementTreeNode(child, depth + 1),
+  const children = getTreeChildrenToFormat(node, depth, detail).map((child) =>
+    formatElementTreeNode(child, depth + 1, detail),
   );
 
   return [
@@ -205,9 +459,9 @@ function formatElementTreeNode(node: ElementTreeNode, depth = 0): string {
     formatRect(node.rect),
     formatAttributes(node.attributes),
     node.text ? `- Text: ${node.text}` : "- Text: none",
-    "```css",
-    formatStyles(node.styles),
-    "```",
+    Object.keys(styles).length > 0 ? "```css" : "",
+    Object.keys(styles).length > 0 ? formatStyles(styles) : "- Styles: none",
+    Object.keys(styles).length > 0 ? "```" : "",
     ...pseudo,
     ...children,
   ]
@@ -218,13 +472,14 @@ function formatElementTreeNode(node: ElementTreeNode, depth = 0): string {
 export type CreateMarkdownFileOptions = {
   includeHtml?: boolean;
   includeTree?: boolean;
+  detail?: CaptureDetail;
 };
 
 export function createMarkdownFile(
   data: ElementSnapshot,
   options: CreateMarkdownFileOptions = {},
 ): File {
-  const { includeHtml = true, includeTree = true } = options;
+  const { includeHtml = true, includeTree = true, detail = "balanced" } = options;
   const kind = data.kind ?? "element";
   const screenshotScope =
     kind === "page"
@@ -232,8 +487,9 @@ export function createMarkdownFile(
       : kind === "viewport"
         ? "Current screenshot attachment is the visible viewport."
         : "Current screenshot attachment is cropped from the visible viewport, so off-screen portions of the selected element may not appear in the image.";
+  const rootStyles = filterStylesForDetail(data.styles, detail);
   const treeContent = includeTree && data.tree
-    ? `\n## Element Tree\n\n${formatElementTreeNode(data.tree)}\n`
+    ? `\n## Element Tree\n\n${formatElementTreeNode(data.tree, 0, detail)}\n`
     : "";
   const viewportContent = data.viewport
     ? `\n## Viewport\n| Key | Value |\n| --- | --- |\n| width | ${data.viewport.width} |\n| height | ${data.viewport.height} |\n| scrollX | ${data.viewport.scrollX} |\n| scrollY | ${data.viewport.scrollY} |\n`
@@ -244,7 +500,7 @@ export function createMarkdownFile(
     : "";
   const hiddenInteractionContent = data.hiddenInteractions?.length
     ? `\n## Hidden Interaction Elements\n\n${data.hiddenInteractions
-        .map(formatHiddenInteraction)
+        .map((interaction, index) => formatHiddenInteraction(interaction, index, detail))
         .join("\n\n")}\n`
     : "";
 
@@ -273,7 +529,7 @@ ${screenshotScope}
 ${viewportContent}
 ## Root Computed Styles
 \`\`\`css
-${formatStyles(data.styles)}
+${formatStyles(rootStyles)}
 \`\`\`
 ${treeContent}${htmlContent}${hiddenInteractionContent}`;
 
@@ -285,6 +541,7 @@ ${treeContent}${htmlContent}${hiddenInteractionContent}`;
 export function createHiddenInteractionsMarkdownFile(
   selector: string,
   interactions: HiddenInteractionSnapshot[],
+  detail: CaptureDetail = "balanced",
 ): File {
   const content = `# Hidden Interaction Elements
 
@@ -310,7 +567,9 @@ if (event.target !== trigger) closePopover();
 if (event.target === trigger) togglePopover();
 ~~~
 
-${interactions.map(formatHiddenInteraction).join("\n\n")}\n`;
+${interactions
+  .map((interaction, index) => formatHiddenInteraction(interaction, index, detail))
+  .join("\n\n")}\n`;
 
   return new File([content], `hidden-interactions-${Date.now()}.md`, {
     type: "text/markdown",

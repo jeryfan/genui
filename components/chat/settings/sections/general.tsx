@@ -2,6 +2,7 @@
 
 import { useSettings } from "../context";
 import {
+  type CaptureDetail,
   type CapturePart,
   type HiddenCaptureActionStrategy,
   type OutputFormat,
@@ -44,6 +45,28 @@ const CAPTURE_PART_OPTIONS: {
     value: "hidden",
     label: "隐藏元素",
     description: "启发式尝试点击、悬浮、聚焦选中元素内的安全触发器，捕获弹窗、下拉、Popover 等交互后显示的内容；原生 select 的系统弹层无法直接读取。",
+  },
+];
+
+const CAPTURE_DETAIL_OPTIONS: {
+  value: CaptureDetail;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "compact",
+    label: "精简",
+    description: "只保留结构、文本、rect 和少量关键样式，文件最小。",
+  },
+  {
+    value: "balanced",
+    label: "平衡",
+    description: "默认。保留高保真复刻常用样式，过滤重复 computed styles。",
+  },
+  {
+    value: "full",
+    label: "完整",
+    description: "保留完整 computed styles，适合调试但文件很大。",
   },
 ];
 
@@ -152,6 +175,37 @@ export const GeneralSection: FC = () => {
               </label>
             ))}
           </div>
+        </div>
+
+        <div className="grid gap-2">
+          <label htmlFor="capture-detail" className="text-sm font-medium">
+            捕获详细度
+          </label>
+          <select
+            id="capture-detail"
+            value={settings.general.captureDetail}
+            onChange={(e) =>
+              updateSettings((prev) => ({
+                ...prev,
+                general: {
+                  ...prev.general,
+                  captureDetail: e.target.value as CaptureDetail,
+                },
+              }))
+            }
+            className="border-input bg-background h-9 rounded-md border px-3 text-sm"
+          >
+            {CAPTURE_DETAIL_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-muted-foreground text-xs">
+            {CAPTURE_DETAIL_OPTIONS.find(
+              (opt) => opt.value === settings.general.captureDetail,
+            )?.description}
+          </p>
         </div>
 
         {settings.general.captureParts.includes("hidden") && (
